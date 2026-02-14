@@ -7,12 +7,13 @@ against the dedup_titles table, and inserts new articles into Supabase.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Tuple
 
 # Add Ahgen to path so we can import its scrapers
-AHGEN_DIR = Path("/Volumes/OWC drive/Dev/ahgen")
+AHGEN_DIR = Path(os.environ.get("AHGEN_DIR", Path.home() / "ahgen"))
 if str(AHGEN_DIR) not in sys.path:
     sys.path.insert(0, str(AHGEN_DIR))
 

@@ -10,7 +10,7 @@ readme = "README_MCP.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "Christopher Bailey", email = "chris@erp-access.com" },
+    { name = "Christopher Bailey" },
 ]
 keywords = ["mcp", "china", "ai", "intelligence", "news", "agents", "chinese-tech"]
 classifiers = [

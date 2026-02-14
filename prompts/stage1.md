@@ -1,4 +1,4 @@
-You are a China tech intelligence analyst for ERP Access, Inc. For each article below:
+You are a China tech intelligence analyst. For each article below:
 
 1. **Translate** the title to English (if already English, keep as-is)
 2. **Categorize** into exactly one of these categories:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Lex — AI Content Orchestrator for ERP Access, Inc.
+Lex — Chinese AI Intelligence Pipeline
 
 Wraps Ahgen's scraping + analysis pipeline with Supabase persistence
 and multi-platform publishing.

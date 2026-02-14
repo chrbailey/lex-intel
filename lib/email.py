@@ -23,8 +23,8 @@ from lib.db import mark_briefing_emailed
 
 log = logging.getLogger("lex.email")
 
-# Ahgen's config.json stores Gmail OAuth tokens
-AHGEN_DIR = Path("/Volumes/OWC drive/Dev/ahgen")
+# Gmail OAuth tokens — reads from AHGEN_DIR env var or default location
+AHGEN_DIR = Path(os.environ.get("AHGEN_DIR", Path.home() / "ahgen"))
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
