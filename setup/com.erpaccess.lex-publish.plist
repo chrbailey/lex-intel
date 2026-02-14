@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.erpaccess.lex-publish</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Volumes/OWC drive/Dev/lex/lex.py</string>
+        <string>cycle</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Volumes/OWC drive/Dev/lex</string>
+
+    <!-- Run at 5 AM Pacific (analyze + publish for US morning readers) -->
+    <!-- Uses 'cycle' which scrapes again (catches any late-night articles) then analyzes + publishes -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>5</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/Users/christopherbailey/.npm-global/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Volumes/OWC drive/Dev/lex/logs/publish-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/OWC drive/Dev/lex/logs/publish-stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

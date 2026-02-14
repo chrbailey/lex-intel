@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.erpaccess.lex-scrape</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>python3</string>
+        <string>/Volumes/OWC drive/Dev/lex/lex.py</string>
+        <string>scrape</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Volumes/OWC drive/Dev/lex</string>
+
+    <!-- Run at 11 PM Pacific (7 AM China time) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>23</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/Users/christopherbailey/.npm-global/bin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Volumes/OWC drive/Dev/lex/logs/scrape-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/OWC drive/Dev/lex/logs/scrape-stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
