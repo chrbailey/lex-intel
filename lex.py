@@ -165,12 +165,73 @@ def cmd_status():
     print(json.dumps(status, indent=2, default=str))
 
 
+def cmd_search():
+    """Semantic search across article corpus via Pinecone."""
+    from lib.vectors import search
+    query = " ".join(a for a in sys.argv[2:] if not a.startswith("--"))
+    if not query:
+        print("Usage: lex.py search \"query\" [--top=10]")
+        sys.exit(1)
+    top_k = 10
+    for arg in sys.argv[2:]:
+        if arg.startswith("--top="):
+            top_k = int(arg.split("=")[1])
+    results = search(query, top_k=top_k)
+    if not results:
+        print("No results found.")
+        return
+    for i, r in enumerate(results, 1):
+        print(f"{i}. [{r['source']}] {r['english_title']}")
+        print(f"   Score: {r['score']}  Category: {r['category']}  Relevance: {r['relevance']}  Date: {r['published_at'][:10]}")
+
+
+def cmd_patterns():
+    """Show pipeline analytics."""
+    from lib.db import get_analytics
+    days = 30
+    for arg in sys.argv[2:]:
+        if arg.startswith("--days="):
+            days = int(arg.split("=")[1])
+    stats = get_analytics(days=days)
+    print(f"\n=== Lex Pipeline Analytics ({days} days) ===\n")
+    print(f"Total articles: {stats['articles_total']}")
+    print(f"\n--- Source Signal Quality ---")
+    for src, q in stats["source_quality"].items():
+        print(f"  {src:20s}  {q['total']:4d} articles  {q['high_relevance']:3d} high-rel  {q['signal_pct']:5.1f}%")
+    print(f"\n--- Category Distribution ---")
+    for cat, count in stats["category_distribution"].items():
+        pct = round(100 * count / stats["articles_total"], 1) if stats["articles_total"] else 0
+        print(f"  {cat:20s}  {count:4d}  ({pct:.1f}%)")
+    print(f"\n--- Publish Stats ---")
+    for plat, ps in stats["publish_stats"].items():
+        rate = round(100 * ps["published"] / ps["total"], 1) if ps["total"] else 0
+        print(f"  {plat:12s}  {ps['total']:3d} total  {ps['published']:3d} published  {ps['failed']:3d} failed  ({rate:.1f}% success)")
+    print(f"\n--- Briefings ---")
+    print(f"  Total: {stats['briefings']['total']}  Emailed: {stats['briefings']['emailed']}")
+
+
+def cmd_cleanup():
+    """Maintenance: archive old articles + clean dedup table."""
+    from lib.db import archive_old_articles, cleanup_dedup
+    days = 30
+    for arg in sys.argv[2:]:
+        if arg.startswith("--days="):
+            days = int(arg.split("=")[1])
+    archived = archive_old_articles(days=days)
+    cleaned = cleanup_dedup(days=days)
+    print(f"Archived {archived} articles older than {days} days")
+    print(f"Cleaned {cleaned} dedup entries older than {days} days")
+
+
 COMMANDS = {
     "scrape": cmd_scrape,
     "analyze": cmd_analyze,
     "publish": cmd_publish,
     "cycle": cmd_cycle,
     "status": cmd_status,
+    "search": cmd_search,
+    "patterns": cmd_patterns,
+    "cleanup": cmd_cleanup,
 }
 
 

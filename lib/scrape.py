@@ -23,6 +23,7 @@ from lib.db import (
     record_title,
     insert_articles,
 )
+from lib.vectors import find_semantic_duplicates, upsert_articles
 
 log = logging.getLogger("lex.scrape")
 
@@ -90,19 +91,29 @@ def _fetch_newsletters() -> Tuple[List[Dict], bool]:
 
 
 def deduplicate(articles: List[Dict]) -> List[Dict]:
-    """Filter out articles whose titles are already in the dedup table."""
+    """Filter out articles via exact title dedup + semantic similarity check."""
     unique = []
+    semantic_dupes = 0
     for a in articles:
         title = a.get("title") or a.get("subject") or ""
         if not title:
             continue
-        if not is_duplicate(title):
-            unique.append(a)
-            record_title(title, a.get("source", "unknown"))
+        # Exact title dedup (Supabase dedup_titles table)
+        if is_duplicate(title):
+            continue
+        # Semantic dedup (Pinecone — catches paraphrased duplicates)
+        body = a.get("body") or a.get("content") or ""
+        matches = find_semantic_duplicates(title, body, threshold=0.85)
+        if matches:
+            semantic_dupes += 1
+            log.debug(f"Semantic dupe: '{title[:60]}' ~ '{matches[0]['english_title'][:60]}' (score={matches[0]['score']:.2f})")
+            continue
+        unique.append(a)
+        record_title(title, a.get("source", "unknown"))
 
     removed = len(articles) - len(unique)
     if removed > 0:
-        log.info(f"Dedup: {len(articles)} -> {len(unique)} ({removed} duplicates)")
+        log.info(f"Dedup: {len(articles)} -> {len(unique)} ({removed} duplicates, {semantic_dupes} semantic)")
 
     return unique
 
@@ -137,6 +148,9 @@ def run_scrape() -> Dict:
 
     # Insert into articles table
     inserted = insert_articles(unique, run_id)
+
+    # Upsert raw articles to Pinecone (pre-enrichment, will be re-upserted after Stage 1)
+    upsert_articles(unique)
 
     # Finish run
     finish_scrape_run(

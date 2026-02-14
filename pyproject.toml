@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lex-intel"
+version = "0.1.0"
+description = "Chinese AI intelligence MCP server — daily curated signals from 11 Chinese-language sources, translated and scored for enterprise AI/tech readers"
+readme = "README_MCP.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Christopher Bailey", email = "chris@erp-access.com" },
+]
+keywords = ["mcp", "china", "ai", "intelligence", "news", "agents", "chinese-tech"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastmcp>=2.0,<3",
+    "supabase>=2.0.0",
+    "pinecone>=5.0.0",
+]
+
+[project.scripts]
+lex-intel = "lex_server:mcp.run"
+
+[project.urls]
+Homepage = "https://github.com/chrbailey/lex-intel"
+Repository = "https://github.com/chrbailey/lex-intel"
+Issues = "https://github.com/chrbailey/lex-intel/issues"
+
+[tool.hatch.build.targets.wheel]
+include = [
+    "lex_server.py",
+    "lib/*.py",
+    "prompts/*.md",
+]

@@ -348,6 +348,97 @@ def mark_published(queue_id: str, platform_id: str) -> None:
     }).eq("id", queue_id).execute()
 
 
+def get_analytics(days: int = 30) -> Dict:
+    """Get pipeline analytics for the last N days.
+
+    Returns source quality, category distribution, publish success rate.
+    """
+    client = _get_client()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    # All articles in window
+    articles = client.table("articles") \
+        .select("source, category, relevance") \
+        .gte("scraped_at", cutoff) \
+        .execute()
+
+    # Source signal quality: % of high-relevance (>=4) per source
+    source_stats = {}  # type: Dict[str, Dict[str, int]]
+    category_counts = {}  # type: Dict[str, int]
+
+    for a in articles.data:
+        src = a.get("source", "unknown")
+        cat = a.get("category", "other")
+        rel = a.get("relevance") or 0
+
+        if src not in source_stats:
+            source_stats[src] = {"total": 0, "high_relevance": 0}
+        source_stats[src]["total"] += 1
+        if rel >= 4:
+            source_stats[src]["high_relevance"] += 1
+
+        category_counts[cat] = category_counts.get(cat, 0) + 1
+
+    source_quality = {}
+    for src, stats in sorted(source_stats.items()):
+        pct = round(100 * stats["high_relevance"] / stats["total"], 1) if stats["total"] else 0
+        source_quality[src] = {
+            "total": stats["total"],
+            "high_relevance": stats["high_relevance"],
+            "signal_pct": pct,
+        }
+
+    # Publish success rate
+    pub_all = client.table("publish_queue") \
+        .select("status, platform") \
+        .gte("created_at", cutoff) \
+        .execute()
+
+    pub_stats = {}  # type: Dict[str, Dict[str, int]]
+    for p in pub_all.data:
+        plat = p.get("platform", "unknown")
+        status = p.get("status", "unknown")
+        if plat not in pub_stats:
+            pub_stats[plat] = {"total": 0, "published": 0, "failed": 0}
+        pub_stats[plat]["total"] += 1
+        if status == "published":
+            pub_stats[plat]["published"] += 1
+        elif status == "failed":
+            pub_stats[plat]["failed"] += 1
+
+    # Briefing count
+    briefings = client.table("briefings") \
+        .select("id, email_sent", count="exact") \
+        .gte("created_at", cutoff) \
+        .execute()
+
+    emailed = sum(1 for b in briefings.data if b.get("email_sent"))
+
+    return {
+        "days": days,
+        "articles_total": len(articles.data),
+        "source_quality": source_quality,
+        "category_distribution": dict(sorted(category_counts.items(), key=lambda x: -x[1])),
+        "publish_stats": pub_stats,
+        "briefings": {
+            "total": briefings.count,
+            "emailed": emailed,
+        },
+    }
+
+
+def archive_old_articles(days: int = 30) -> int:
+    """Archive articles older than N days. Returns count archived."""
+    client = _get_client()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    result = client.table("articles") \
+        .update({"status": "archived"}) \
+        .lt("scraped_at", cutoff) \
+        .neq("status", "archived") \
+        .execute()
+    return len(result.data)
+
+
 def mark_publish_failed(queue_id: str, error: str) -> None:
     """Mark a queue item as failed. Schedules retry if under max_retries."""
     client = _get_client()

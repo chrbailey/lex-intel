@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""
+Lex Intel MCP Server — Chinese AI intelligence for AI agents.
+
+Serves curated, daily Chinese tech/AI intelligence through semantic search,
+briefings, and trend signals. Data sourced from 11 Chinese-language outlets
+(36Kr, Huxiu, CSDN, Caixin, etc.) plus Gmail newsletters.
+
+Run: python lex_server.py           (stdio transport)
+     fastmcp run lex_server.py:mcp  (custom transport)
+"""
+from __future__ import annotations
+
+import os
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Optional
+
+from fastmcp import FastMCP
+
+# Load .env from project root
+_ENV_PATH = Path(__file__).parent / ".env"
+if _ENV_PATH.exists():
+    for _line in _ENV_PATH.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
+
+mcp = FastMCP(
+    "Lex Intel",
+    instructions=(
+        "Lex Intel provides curated Chinese AI/tech intelligence. "
+        "Use lex_search_articles for topic queries, lex_get_briefing for "
+        "the latest daily briefing, and lex_get_signals for emerging trends. "
+        "All data is sourced from 11 Chinese-language outlets and translated to English."
+    ),
+)
+
+
+# ── Tool 1: Search Articles ────────────────────────────────
+
+@mcp.tool
+def lex_search_articles(
+    query: str,
+    limit: int = 10,
+    category: Optional[str] = None,
+    min_relevance: int = 1,
+) -> dict:
+    """Search the Chinese AI article corpus by semantic similarity.
+
+    Use this when looking for articles about a specific topic, company,
+    technology, or event in the Chinese AI/tech ecosystem.
+
+    Args:
+        query: Natural language search query (e.g., "robotics funding",
+               "DeepSeek model release", "China AI regulation")
+        limit: Max results to return (1-50, default 10)
+        category: Filter by category. One of: funding, m_and_a, investment,
+                  product, regulation, breakthrough, research, open_source,
+                  partnership, adoption, personnel, market, other.
+                  Omit to search all categories.
+        min_relevance: Minimum relevance score 1-5 (default 1 = all)
+
+    Returns dict with 'articles' list and 'total' count. Each article has:
+    source, english_title, category, relevance, published_at, score.
+    """
+    from lib.vectors import search
+
+    limit = max(1, min(limit, 50))
+    results = search(query, top_k=limit * 2)  # over-fetch for filtering
+
+    articles = []
+    for r in results:
+        if min_relevance > 1 and r.get("relevance", 0) < min_relevance:
+            continue
+        if category and r.get("category") != category:
+            continue
+        articles.append({
+            "source": r["source"],
+            "english_title": r["english_title"],
+            "category": r.get("category", "other"),
+            "relevance": r.get("relevance", 0),
+            "published_at": r.get("published_at", "")[:10],
+            "similarity_score": r["score"],
+        })
+        if len(articles) >= limit:
+            break
+
+    return {
+        "articles": articles,
+        "total": len(articles),
+        "has_more": len(results) > len(articles),
+        "query": query,
+    }
+
+
+# ── Tool 2: Get Latest Briefing ────────────────────────────
+
+@mcp.tool
+def lex_get_briefing(
+    date: Optional[str] = None,
+) -> dict:
+    """Get the latest Chinese AI morning briefing (Bloomberg-style).
+
+    Use this when you need a summary of what happened in Chinese AI/tech
+    today or on a specific date. The briefing has five sections:
+    LEAD (biggest story), PATTERNS (cross-source themes), SIGNALS
+    (emerging trends), WATCHLIST (developing stories), DATA (key numbers).
+
+    Args:
+        date: ISO date string (YYYY-MM-DD) to fetch a specific day's
+              briefing. Omit for the most recent briefing.
+
+    Returns dict with 'briefing' text, 'date', 'article_count', 'model_used'.
+    Returns empty briefing if none exists for the requested date.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+
+    query = client.table("briefings") \
+        .select("briefing_text, article_count, model_used, created_at") \
+        .order("created_at", desc=True)
+
+    if date:
+        query = query.gte("created_at", f"{date}T00:00:00Z") \
+                     .lt("created_at", f"{date}T23:59:59Z")
+
+    result = query.limit(1).execute()
+
+    if not result.data:
+        return {
+            "briefing": "",
+            "date": date or "none",
+            "article_count": 0,
+            "message": "No briefing found. Try omitting the date for the latest.",
+        }
+
+    row = result.data[0]
+    return {
+        "briefing": row["briefing_text"],
+        "date": row["created_at"][:10],
+        "article_count": row["article_count"],
+        "model_used": row["model_used"],
+    }
+
+
+# ── Tool 3: Get Signals ────────────────────────────────────
+
+@mcp.tool
+def lex_get_signals(
+    days: int = 7,
+    min_relevance: int = 4,
+) -> dict:
+    """Get emerging signals and high-relevance developments from recent days.
+
+    Use this to understand what trends are building in Chinese AI/tech.
+    Returns articles scored 4+ (significant) or 5 (critical) from the
+    last N days, grouped by category.
+
+    Args:
+        days: Lookback window in days (1-30, default 7)
+        min_relevance: Minimum relevance score (default 4 = significant+)
+
+    Returns dict with 'signals' grouped by category, 'total', 'period'.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    days = max(1, min(days, 30))
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    result = client.table("articles") \
+        .select("source, english_title, category, relevance, published_at") \
+        .gte("relevance", min_relevance) \
+        .gte("scraped_at", cutoff) \
+        .order("relevance", desc=True) \
+        .order("scraped_at", desc=True) \
+        .limit(50) \
+        .execute()
+
+    # Cluster articles into signal threads by category + shared keywords
+    import re as _re
+    _stop = {"the", "a", "an", "in", "of", "to", "for", "and", "is", "on",
+             "at", "by", "with", "from", "its", "has", "new", "china", "chinese",
+             "ai", "says", "will", "than", "more", "about", "into", "over"}
+
+    def _keywords(title):
+        words = set(_re.findall(r'[a-z]{3,}', (title or "").lower()))
+        return words - _stop
+
+    clusters = []  # each: {theme, category, sources, articles, confidence}
+    used = set()
+
+    for i, a in enumerate(result.data):
+        if i in used:
+            continue
+        kw_a = _keywords(a.get("english_title", ""))
+        group = [a]
+        used.add(i)
+
+        for j, b in enumerate(result.data):
+            if j in used:
+                continue
+            kw_b = _keywords(b.get("english_title", ""))
+            shared = kw_a & kw_b
+            same_cat = a.get("category") == b.get("category")
+            if len(shared) >= 2 and same_cat:
+                group.append(b)
+                used.add(j)
+                kw_a = kw_a | kw_b  # widen for transitive matches
+
+        sources = list({x["source"] for x in group})
+        n = len(sources)
+        confidence = "high" if n >= 3 else ("medium" if n >= 2 else "single-source")
+
+        # Build theme from most common keywords
+        all_kw = _keywords(" ".join(x.get("english_title", "") for x in group))
+        theme = group[0].get("english_title", "")[:80]
+
+        clusters.append({
+            "theme": theme,
+            "category": a.get("category", "other"),
+            "source_count": n,
+            "sources": sources,
+            "confidence": confidence,
+            "articles": [{
+                "source": x["source"],
+                "english_title": x.get("english_title", ""),
+                "relevance": x["relevance"],
+                "published_at": (x.get("published_at") or "")[:10],
+            } for x in group],
+        })
+
+    clusters.sort(key=lambda c: (-c["source_count"], -max(a["relevance"] for a in c["articles"])))
+
+    return {
+        "signals": clusters,
+        "total": len(result.data),
+        "signal_count": len(clusters),
+        "period": f"last {days} days",
+        "min_relevance": min_relevance,
+    }
+
+
+# ── Tool 4: List Sources ───────────────────────────────────
+
+@mcp.tool
+def lex_list_sources() -> dict:
+    """List all Chinese AI/tech sources Lex monitors and their health.
+
+    Use this to understand what data sources feed the intelligence pipeline
+    and how recently each was successfully scraped.
+
+    Returns dict with 'sources' list. Each source has: name, last_seen,
+    article_count_30d, signal_quality_pct.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+
+    articles = client.table("articles") \
+        .select("source, relevance") \
+        .gte("scraped_at", cutoff) \
+        .execute()
+
+    # Aggregate per source
+    stats = {}
+    for a in articles.data:
+        src = a["source"]
+        if src not in stats:
+            stats[src] = {"total": 0, "high": 0}
+        stats[src]["total"] += 1
+        if (a.get("relevance") or 0) >= 4:
+            stats[src]["high"] += 1
+
+    # Get last scrape time per source
+    latest_run = client.table("scrape_runs") \
+        .select("sources_ok, finished_at") \
+        .order("finished_at", desc=True) \
+        .limit(1) \
+        .execute()
+
+    last_scrape = latest_run.data[0]["finished_at"][:16] if latest_run.data else "unknown"
+
+    sources = []
+    for src, s in sorted(stats.items(), key=lambda x: -x[1]["total"]):
+        pct = round(100 * s["high"] / s["total"], 1) if s["total"] else 0
+        sources.append({
+            "name": src,
+            "article_count_30d": s["total"],
+            "high_relevance_count": s["high"],
+            "signal_quality_pct": pct,
+        })
+
+    return {
+        "sources": sources,
+        "total_sources": len(sources),
+        "last_scrape": last_scrape,
+    }
+
+
+# ── Tool 5: Get Trending Categories ────────────────────────
+
+@mcp.tool
+def lex_get_trending(
+    days: int = 7,
+) -> dict:
+    """Get trending categories and topic momentum in Chinese AI/tech.
+
+    Use this to understand which areas of Chinese AI are seeing the most
+    activity. Compares recent article volume by category to the previous
+    period to show momentum (growing vs declining coverage).
+
+    Args:
+        days: Analysis window in days (1-30, default 7).
+              Compares this period vs the prior equivalent period.
+
+    Returns dict with 'categories' showing current count, previous count,
+    and momentum direction.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    days = max(1, min(days, 30))
+    now = datetime.now(timezone.utc)
+    current_start = (now - timedelta(days=days)).isoformat()
+    prev_start = (now - timedelta(days=days * 2)).isoformat()
+
+    current = client.table("articles") \
+        .select("category") \
+        .gte("scraped_at", current_start) \
+        .execute()
+
+    previous = client.table("articles") \
+        .select("category") \
+        .gte("scraped_at", prev_start) \
+        .lt("scraped_at", current_start) \
+        .execute()
+
+    cur_counts = {}
+    for a in current.data:
+        cat = a.get("category", "other")
+        cur_counts[cat] = cur_counts.get(cat, 0) + 1
+
+    prev_counts = {}
+    for a in previous.data:
+        cat = a.get("category", "other")
+        prev_counts[cat] = prev_counts.get(cat, 0) + 1
+
+    all_cats = set(cur_counts) | set(prev_counts)
+    categories = []
+    for cat in sorted(all_cats):
+        cur = cur_counts.get(cat, 0)
+        prev = prev_counts.get(cat, 0)
+        if prev > 0:
+            change_pct = round(100 * (cur - prev) / prev, 1)
+        elif cur > 0:
+            change_pct = 100.0
+        else:
+            change_pct = 0.0
+
+        if change_pct > 10:
+            momentum = "rising"
+        elif change_pct < -10:
+            momentum = "declining"
+        else:
+            momentum = "stable"
+
+        categories.append({
+            "category": cat,
+            "current_period": cur,
+            "previous_period": prev,
+            "change_pct": change_pct,
+            "momentum": momentum,
+        })
+
+    categories.sort(key=lambda x: x["current_period"], reverse=True)
+
+    return {
+        "categories": categories,
+        "period": f"{days}-day windows",
+        "current_articles": len(current.data),
+        "previous_articles": len(previous.data),
+    }
+
+
+# ── Tool 6: Get Article Detail ──────────────────────────────
+
+@mcp.tool
+def lex_get_article(
+    article_id: str,
+) -> dict:
+    """Get full details of a specific article by its ID.
+
+    Use this after finding articles via lex_search_articles or
+    lex_get_signals to retrieve the full body text and metadata.
+
+    Args:
+        article_id: The Pinecone record ID (from search results) or
+                    Supabase UUID.
+
+    Returns dict with full article details including body text.
+    If not found, returns an error message.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+
+    # Try Supabase UUID first
+    result = client.table("articles") \
+        .select("*") \
+        .eq("id", article_id) \
+        .limit(1) \
+        .execute()
+
+    if not result.data:
+        # Try source_id (Pinecone hash ID)
+        result = client.table("articles") \
+            .select("*") \
+            .eq("source_id", article_id) \
+            .limit(1) \
+            .execute()
+
+    if not result.data:
+        return {"error": f"Article '{article_id}' not found. Use lex_search_articles to find valid IDs."}
+
+    a = result.data[0]
+    return {
+        "id": a["id"],
+        "source": a["source"],
+        "title": a["title"],
+        "english_title": a.get("english_title", ""),
+        "body": (a.get("body") or "")[:3000],
+        "category": a.get("category", "other"),
+        "relevance": a.get("relevance"),
+        "published_at": a.get("published_at"),
+        "url": a.get("url"),
+        "status": a.get("status"),
+    }
+
+
+if __name__ == "__main__":
+    mcp.run()
