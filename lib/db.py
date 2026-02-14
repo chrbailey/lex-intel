@@ -11,9 +11,20 @@ import os
 import re
 import unicodedata
 from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from supabase import create_client, Client
+
+# Load .env from project root (so db.py works from any entry point)
+_ENV_PATH = Path(__file__).parent.parent / ".env"
+if _ENV_PATH.exists():
+    for _line in _ENV_PATH.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 
 def _get_client() -> Client:
@@ -28,6 +39,28 @@ def _normalize_title(title: str) -> str:
     title = unicodedata.normalize("NFKC", title).lower()
     title = re.sub(r'[^\w\s]', '', title)
     return re.sub(r'\s+', ' ', title).strip()
+
+
+def _parse_date(raw: Optional[str]) -> Optional[str]:
+    """Parse various date formats into ISO 8601 for Postgres timestamptz."""
+    if not raw:
+        return None
+    # Already ISO-ish? Pass through after stripping problematic suffixes
+    raw = raw.strip()
+    if raw.endswith(" (UTC)"):
+        raw = raw[:-6]
+    try:
+        # Try RFC 2822 (email headers: "Sat, 14 Feb 2026 07:50:00 +0000")
+        dt = parsedate_to_datetime(raw)
+        return dt.isoformat()
+    except Exception:
+        pass
+    try:
+        # Try ISO 8601 directly
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return dt.isoformat()
+    except Exception:
+        return None
 
 
 def _source_id(source: str, title: str, url: Optional[str] = None) -> str:
@@ -148,7 +181,7 @@ def insert_articles(articles: List[Dict], scrape_run_id: str) -> int:
             "title_norm": norm,
             "url": a.get("url"),
             "body": (a.get("body") or a.get("content") or "")[:10000],
-            "published_at": a.get("date") or a.get("published"),
+            "published_at": _parse_date(a.get("date") or a.get("published")),
             "scrape_run_id": scrape_run_id,
             "status": "pending",
         })
