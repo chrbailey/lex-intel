@@ -7,8 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/env</string>
-        <string>python3</string>
+        <string>/Volumes/OWC drive/Dev/lex/.venv/bin/python3</string>
         <string>/Volumes/OWC drive/Dev/lex/lex.py</string>
         <string>cycle</string>
     </array>
