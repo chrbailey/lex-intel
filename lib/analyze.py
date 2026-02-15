@@ -10,15 +10,14 @@ Utilities (retry_with_backoff, _parse_claude_json) are still imported from Ahgen
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import os
 import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import anthropic
 import httpx
 
 from lib.db import (
@@ -42,15 +41,20 @@ RETRY_DELAY = 5
 # ── Utilities (local copies, no Ahgen dependency) ──────────
 
 def _retry_with_backoff(func, *args, **kwargs) -> Any:
-    """Retry a function with exponential backoff on network errors."""
+    """Retry a function with exponential backoff on transient errors."""
     for attempt in range(MAX_RETRIES):
         try:
             return func(*args, **kwargs)
-        except (httpx.NetworkError, httpx.TimeoutException, anthropic.APIConnectionError) as e:
+        except (
+            httpx.NetworkError,
+            httpx.TimeoutException,
+            ConnectionError,
+            OSError,
+        ) as e:
             if attempt == MAX_RETRIES - 1:
                 raise
             wait = RETRY_DELAY * (2 ** attempt)
-            log.warning(f"Network error, retrying in {wait}s: {e}")
+            log.warning(f"Transient error, retrying in {wait}s: {e}")
             time.sleep(wait)
     return None
 
@@ -83,6 +87,40 @@ def _parse_claude_json(response_text: str) -> Any:
     return None
 
 
+# ── LLM Completion (Agent SDK / API fallback) ──────────────
+
+
+async def _agent_sdk_complete(prompt: str) -> str:
+    """Call Claude via Agent SDK (Max subscription)."""
+    from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+
+    chunks = []  # type: List[str]
+    async for message in query(
+        prompt=prompt,
+        options=ClaudeAgentOptions(
+            allowed_tools=[],
+            max_turns=1,
+        ),
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    chunks.append(block.text)
+    return "".join(chunks)
+
+
+def _llm_complete(prompt: str, max_tokens: int = 4096) -> str:
+    """Call Claude via Agent SDK using Max subscription.
+
+    Uses the same auth as Claude Code — no API key or token needed.
+    Unsets CLAUDECODE so this works when called from inside Claude Code
+    (e.g. lex_server.py MCP tool).
+    """
+    import os
+    os.environ.pop("CLAUDECODE", None)
+    return asyncio.run(_agent_sdk_complete(prompt))
+
+
 # ── Template Loader ─────────────────────────────────────────
 
 def _load_prompt(name: str, **kwargs) -> str:
@@ -99,9 +137,7 @@ def _load_prompt(name: str, **kwargs) -> str:
 # ── Stage 1: Translate + Categorize ─────────────────────────
 
 def _stage1(
-    client: anthropic.Anthropic,
     articles: List[Dict],
-    model: str = "claude-sonnet-4-20250514",
     batch_size: int = 50,
 ) -> List[Dict]:
     """Stage 1: Translate, categorize (13 categories), score relevance.
@@ -124,14 +160,8 @@ def _stage1(
         prompt = _load_prompt("stage1", ARTICLES=items_text)
 
         try:
-            response = _retry_with_backoff(
-                client.messages.create,
-                model=model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            )
-
-            parsed = _parse_claude_json(response.content[0].text)
+            response_text = _retry_with_backoff(_llm_complete, prompt, 4096)
+            parsed = _parse_claude_json(response_text)
             if parsed and isinstance(parsed, list):
                 for item in parsed:
                     idx = item.get("index", -1)
@@ -163,10 +193,8 @@ def _stage1(
 # ── Stage 2: Pattern Analysis + Briefing ────────────────────
 
 def _stage2(
-    client: anthropic.Anthropic,
     articles: List[Dict],
     historical_context: str = "",
-    model: str = "claude-sonnet-4-20250514",
 ) -> Dict:
     """Stage 2: Cross-source pattern analysis with historical context.
 
@@ -203,14 +231,8 @@ def _stage2(
     )
 
     try:
-        response = _retry_with_backoff(
-            client.messages.create,
-            model=model,
-            max_tokens=8192,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        parsed = _parse_claude_json(response.content[0].text)
+        response_text = _retry_with_backoff(_llm_complete, prompt, 8192)
+        parsed = _parse_claude_json(response_text)
         if parsed and isinstance(parsed, dict):
             return {
                 "briefing": parsed.get("briefing", ""),
@@ -220,16 +242,6 @@ def _stage2(
         log.error(f"Stage 2 failed: {e}")
 
     return {"briefing": "", "drafts": []}
-
-
-# ── Anthropic Client ────────────────────────────────────────
-
-def _get_client() -> anthropic.Anthropic:
-    """Get Anthropic client from env."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-    return anthropic.Anthropic(api_key=api_key)
 
 
 def _extract_lead(briefing_text: str) -> Optional[str]:
@@ -245,7 +257,7 @@ def _extract_lead(briefing_text: str) -> Optional[str]:
 
 # ── Main Entry Point ────────────────────────────────────────
 
-def run_analyze(model: str = "claude-sonnet-4-20250514") -> Dict:
+def run_analyze() -> Dict:
     """Full analyze cycle: read pending articles -> enrich -> briefing -> queue posts.
 
     Returns summary dict.
@@ -260,8 +272,6 @@ def run_analyze(model: str = "claude-sonnet-4-20250514") -> Dict:
         return {"run_id": run_id, "analyzed": 0, "briefing": False}
 
     log.info(f"Analyzing {len(articles)} pending articles")
-
-    client = _get_client()
 
     # Convert Supabase rows to working format
     working = []
@@ -281,7 +291,7 @@ def run_analyze(model: str = "claude-sonnet-4-20250514") -> Dict:
 
     # Stage 1: Translate, categorize, score
     log.info("Stage 1: Translating and categorizing...")
-    enriched = _stage1(client, working, model=model)
+    enriched = _stage1(working)
     log.info(f"Stage 1 complete: {len(enriched)} enriched")
 
     # Write enrichment back to Supabase
@@ -316,7 +326,7 @@ def run_analyze(model: str = "claude-sonnet-4-20250514") -> Dict:
 
         # Stage 2: Pattern analysis + briefing generation
         log.info("Stage 2: Pattern analysis and briefing generation...")
-        result = _stage2(client, relevant, historical_context=historical, model=model)
+        result = _stage2(relevant, historical_context=historical)
         briefing_text = result.get("briefing", "")
         drafts = result.get("drafts", [])
         log.info(f"Stage 2 complete: {len(briefing_text)} char briefing, {len(drafts)} drafts")
@@ -327,7 +337,7 @@ def run_analyze(model: str = "claude-sonnet-4-20250514") -> Dict:
         briefing_id = insert_briefing(
             briefing_text=briefing_text,
             article_count=len(relevant),
-            model_used=model,
+            model_used="agent-sdk",
             scrape_run_id=run_id,
         )
         log.info(f"Briefing {briefing_id} saved")

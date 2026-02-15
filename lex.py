@@ -49,10 +49,7 @@ def cmd_scrape():
 def cmd_analyze():
     """Run analyze cycle."""
     from lib.analyze import run_analyze
-    model = "claude-sonnet-4-20250514"
-    if "--opus" in sys.argv:
-        model = "claude-opus-4-20250514"
-    result = run_analyze(model=model)
+    result = run_analyze()
     print(json.dumps(result, indent=2, default=str))
 
 

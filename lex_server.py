@@ -540,9 +540,7 @@ def lex_run_scrape() -> dict:
 # ── Tool 9: Run Analyze (WRITE) ──────────────────────────
 
 @mcp.tool
-def lex_run_analyze(
-    model: str = "sonnet",
-) -> dict:
+def lex_run_analyze() -> dict:
     """Analyze pending articles: translate, categorize, generate briefing and post drafts.
 
     WRITE OPERATION: Reads pending articles from Supabase, runs two-stage LLM
@@ -550,9 +548,7 @@ def lex_run_analyze(
     cross-source pattern analysis + briefing + post drafts), updates article
     statuses, inserts briefing, and queues posts for publishing.
 
-    Args:
-        model: LLM model tier to use. 'sonnet' (default, ~$0.05-0.15/run)
-               or 'opus' (~$0.30-0.60/run, higher quality analysis).
+    Requires CLAUDE_CODE_OAUTH_TOKEN (Max subscription, no per-token billing).
 
     Returns dict with 'analyzed', 'relevant', 'briefing_id', 'drafts', 'posts_queued'.
     """
@@ -560,12 +556,7 @@ def lex_run_analyze(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     from lib.analyze import run_analyze
 
-    model_map = {
-        "sonnet": "claude-sonnet-4-20250514",
-        "opus": "claude-opus-4-20250514",
-    }
-    model_id = model_map.get(model, model_map["sonnet"])
-    return run_analyze(model=model_id)
+    return run_analyze()
 
 
 # ── Tool 10: Run Publish (WRITE) ─────────────────────────
