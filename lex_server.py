@@ -31,8 +31,14 @@ mcp = FastMCP(
     "Lex Intel",
     instructions=(
         "Lex Intel provides curated Chinese AI/tech intelligence. "
-        "Use lex_search_articles for topic queries, lex_get_briefing for "
-        "the latest daily briefing, and lex_get_signals for emerging trends. "
+        "Read tools: lex_search_articles (topic queries), lex_get_briefing "
+        "(daily briefing), lex_get_signals (emerging trends), lex_list_sources "
+        "(source health), lex_get_trending (category momentum), lex_get_article "
+        "(full article detail), lex_get_status (pipeline health). "
+        "Write tools: lex_run_scrape (fetch new articles), lex_run_analyze "
+        "(translate + categorize + briefing), lex_run_publish (drain publish "
+        "queue), lex_run_cycle (full pipeline: scrape + analyze + publish). "
+        "Write tools modify database state and call external APIs. "
         "All data is sourced from 11 Chinese-language outlets and translated to English."
     ),
 )
@@ -283,7 +289,10 @@ def lex_list_sources() -> dict:
         .limit(1) \
         .execute()
 
-    last_scrape = latest_run.data[0]["finished_at"][:16] if latest_run.data else "unknown"
+    if latest_run.data and latest_run.data[0].get("finished_at"):
+        last_scrape = latest_run.data[0]["finished_at"][:16]
+    else:
+        last_scrape = "unknown"
 
     sources = []
     for src, s in sorted(stats.items(), key=lambda x: -x[1]["total"]):
@@ -439,6 +448,194 @@ def lex_get_article(
         "published_at": a.get("published_at"),
         "url": a.get("url"),
         "status": a.get("status"),
+    }
+
+
+# ── Tool 7: Get Pipeline Status ───────────────────────────
+
+@mcp.tool
+def lex_get_status() -> dict:
+    """Get current pipeline health — latest scrape run, article counts, publish queue.
+
+    Use this to check if overnight runs succeeded, if articles are waiting
+    for analysis, or if the publish queue has failures.
+
+    Returns dict with 'latest_run', 'articles' counts, 'publish_queue' counts.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+
+    latest = client.table("scrape_runs") \
+        .select("*") \
+        .order("created_at", desc=True) \
+        .limit(1) \
+        .execute()
+
+    pending = client.table("articles") \
+        .select("id", count="exact") \
+        .eq("status", "pending") \
+        .execute()
+
+    analyzed = client.table("articles") \
+        .select("id", count="exact") \
+        .eq("status", "analyzed") \
+        .execute()
+
+    queued = client.table("publish_queue") \
+        .select("id", count="exact") \
+        .eq("status", "queued") \
+        .execute()
+
+    retry = client.table("publish_queue") \
+        .select("id", count="exact") \
+        .eq("status", "retry_queued") \
+        .execute()
+
+    failed = client.table("publish_queue") \
+        .select("id", count="exact") \
+        .eq("status", "failed") \
+        .execute()
+
+    published_today = client.table("publish_queue") \
+        .select("id", count="exact") \
+        .eq("status", "published") \
+        .gte("published_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")) \
+        .execute()
+
+    return {
+        "latest_run": latest.data[0] if latest.data else None,
+        "articles": {
+            "pending": pending.count,
+            "analyzed": analyzed.count,
+        },
+        "publish_queue": {
+            "queued": queued.count,
+            "retry_queued": retry.count,
+            "failed": failed.count,
+            "published_today": published_today.count,
+        },
+    }
+
+
+# ── Tool 8: Run Scrape (WRITE) ───────────────────────────
+
+@mcp.tool
+def lex_run_scrape() -> dict:
+    """Scrape all 11 Chinese AI sources and Gmail newsletters for new articles.
+
+    WRITE OPERATION: Fetches articles from external sites, deduplicates against
+    Supabase history, and inserts new articles with status 'pending'. Also
+    records scrape run metadata. No arguments needed.
+
+    Returns dict with 'found' (total fetched), 'new' (after dedup),
+    'sources_ok' (successful sources), 'sources_failed' (failed sources).
+    """
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    from lib.scrape import run_scrape
+    return run_scrape()
+
+
+# ── Tool 9: Run Analyze (WRITE) ──────────────────────────
+
+@mcp.tool
+def lex_run_analyze(
+    model: str = "sonnet",
+) -> dict:
+    """Analyze pending articles: translate, categorize, generate briefing and post drafts.
+
+    WRITE OPERATION: Reads pending articles from Supabase, runs two-stage LLM
+    pipeline (Stage 1: translate + categorize + score relevance, Stage 2:
+    cross-source pattern analysis + briefing + post drafts), updates article
+    statuses, inserts briefing, and queues posts for publishing.
+
+    Args:
+        model: LLM model tier to use. 'sonnet' (default, ~$0.05-0.15/run)
+               or 'opus' (~$0.30-0.60/run, higher quality analysis).
+
+    Returns dict with 'analyzed', 'relevant', 'briefing_id', 'drafts', 'posts_queued'.
+    """
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    from lib.analyze import run_analyze
+
+    model_map = {
+        "sonnet": "claude-sonnet-4-20250514",
+        "opus": "claude-opus-4-20250514",
+    }
+    model_id = model_map.get(model, model_map["sonnet"])
+    return run_analyze(model=model_id)
+
+
+# ── Tool 10: Run Publish (WRITE) ─────────────────────────
+
+@mcp.tool
+def lex_run_publish(
+    platform: Optional[str] = None,
+) -> dict:
+    """Drain the publish queue to configured platforms (LinkedIn, Dev.to, Medium).
+
+    WRITE OPERATION: Reads queued posts from Supabase and publishes them via
+    platform APIs. Handles retries with exponential backoff (5m/20m/80m).
+    Falls back to simplified content if full post fails. Posts to platforms
+    without configured API keys are silently skipped.
+
+    Args:
+        platform: Publish to a specific platform only. One of: 'linkedin',
+                  'devto', 'medium'. Omit to publish to all configured platforms.
+
+    Returns dict with 'published', 'failed', 'skipped' counts.
+    """
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    from lib.publish import drain_queue
+    return drain_queue(platform=platform)
+
+
+# ── Tool 11: Run Full Cycle (WRITE) ──────────────────────
+
+@mcp.tool
+def lex_run_cycle() -> dict:
+    """Run the full pipeline: scrape all sources, analyze new articles, publish posts.
+
+    WRITE OPERATION: Executes all three phases sequentially:
+    Phase 1 (Scrape): Fetch from 11 sources + Gmail, dedup, insert new articles.
+    Phase 2 (Analyze): Translate, categorize, score, generate briefing + drafts.
+    Phase 3 (Publish): Drain publish queue to all configured platforms.
+    If Phase 1 finds no new articles, Phases 2 and 3 are skipped.
+
+    Returns dict with 'scrape', 'analyze', 'publish' sub-results,
+    or just 'scrape' if no new articles were found.
+    """
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    log = logging.getLogger("lex.cycle")
+
+    from lib.scrape import run_scrape
+    from lib.analyze import run_analyze
+    from lib.publish import drain_queue
+
+    log.info("Phase 1: Scraping sources...")
+    scrape_result = run_scrape()
+    log.info("Scrape: %d found, %d new", scrape_result["found"], scrape_result["new"])
+
+    if scrape_result["new"] == 0:
+        log.info("No new articles, skipping analysis and publish")
+        return {"scrape": scrape_result, "skipped": "no new articles"}
+
+    log.info("Phase 2: Analyzing articles...")
+    analyze_result = run_analyze()
+    log.info("Analyze: %d analyzed, %d posts queued", analyze_result["analyzed"], analyze_result["posts_queued"])
+
+    log.info("Phase 3: Publishing posts...")
+    publish_result = drain_queue()
+    log.info("Publish: %d published, %d failed", publish_result["published"], publish_result["failed"])
+
+    return {
+        "scrape": scrape_result,
+        "analyze": analyze_result,
+        "publish": publish_result,
     }
 
 

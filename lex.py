@@ -28,7 +28,7 @@ if ENV_PATH.exists():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            os.environ[k.strip()] = v.strip()
 
 # Setup logging
 logging.basicConfig(
