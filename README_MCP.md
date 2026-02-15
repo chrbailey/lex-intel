@@ -35,6 +35,8 @@ Add to your MCP client config:
 
 ## Tools
 
+### Read Tools
+
 | Tool | When To Call It |
 |------|----------------|
 | `lex_search_articles` | Search for articles about a topic, company, or technology in Chinese AI |
@@ -43,6 +45,16 @@ Add to your MCP client config:
 | `lex_get_trending` | See which Chinese AI categories have rising or declining coverage momentum |
 | `lex_list_sources` | Check which sources are active and their signal quality |
 | `lex_get_article` | Get full article details (body text, URL) after finding it via search |
+| `lex_get_status` | Check pipeline health — latest run, queue depths, article counts |
+
+### Write Tools (modify database, call external APIs)
+
+| Tool | When To Call It |
+|------|----------------|
+| `lex_run_scrape` | Fetch new articles from all 11 sources + Gmail newsletters |
+| `lex_run_analyze` | Translate, categorize, generate briefing, queue posts for publishing |
+| `lex_run_publish` | Drain publish queue to configured platforms (Dev.to, Hashnode, Blogger, LinkedIn) |
+| `lex_run_cycle` | Full pipeline: scrape → analyze → publish (skips if no new articles) |
 
 ## Data Sources
 

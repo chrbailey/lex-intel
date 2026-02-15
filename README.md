@@ -2,7 +2,7 @@
 
 <!-- mcp-name: io.github.chrbailey/lex-intel -->
 
-MCP server + pipeline for Chinese AI/tech intelligence. Scrapes 11 Chinese-language sources daily, translates and categorizes articles with Claude, stores them in Supabase + Pinecone, and serves curated intelligence through 6 MCP tools.
+MCP server + pipeline for Chinese AI/tech intelligence. Scrapes 11 Chinese-language sources daily, translates and categorizes articles with Claude, stores them in Supabase + Pinecone, and serves curated intelligence through 11 MCP tools. Auto-publishes briefings to Dev.to, Hashnode, and Blogger.
 
 ## What It Does
 
@@ -57,6 +57,12 @@ ANTHROPIC_API_KEY=sk-ant-...
 PINECONE_API_KEY=pcsk_...
 AHGEN_DIR=/path/to/ahgen
 LEX_EMAIL_TO=you@example.com
+
+# Publishing (all optional — unconfigured platforms are skipped)
+DEVTO_API_KEY=...           # Dev.to: Settings → Extensions → API Keys
+HASHNODE_API_KEY=...        # Hashnode: Settings → Developer → Access Tokens
+HASHNODE_PUBLICATION_ID=... # Hashnode: Dashboard → publication ID from URL
+BLOGGER_EMAIL=...           # Blogger: Settings → Email → Publishing using email
 ```
 
 ### Run the Pipeline
@@ -108,7 +114,9 @@ Add to your MCP client config (Claude Code, Cursor, etc.):
 
 ## MCP Tools
 
-6 tools, designed for AI agent consumption.
+11 tools (7 read, 4 write), designed for AI agent consumption.
+
+### Read Tools
 
 | Tool | When To Call It | Args |
 |------|----------------|------|
@@ -118,6 +126,16 @@ Add to your MCP client config (Claude Code, Cursor, etc.):
 | `lex_get_trending` | See which categories have rising or declining momentum | `days` (int 1-30, default 7) |
 | `lex_list_sources` | Check active sources and their signal quality | — |
 | `lex_get_article` | Get full article text after finding it via search | `article_id` (str) |
+| `lex_get_status` | Check pipeline health — latest run, queue depths, article counts | — |
+
+### Write Tools
+
+| Tool | When To Call It | Args |
+|------|----------------|------|
+| `lex_run_scrape` | Fetch new articles from all 11 sources + Gmail | — |
+| `lex_run_analyze` | Translate, categorize, generate briefing, queue posts | `model` (str: "sonnet" or "opus", default "sonnet") |
+| `lex_run_publish` | Drain publish queue to configured platforms | `platform` (str, optional: "devto", "hashnode", "blogger", "linkedin", "medium") |
+| `lex_run_cycle` | Full pipeline: scrape → analyze → publish | — |
 
 ### Tool Details
 
@@ -133,10 +151,18 @@ Add to your MCP client config (Claude Code, Cursor, etc.):
 
 **`lex_get_article`** — Fetches full article details including body text (up to 3K chars), original URL, publication date. Accepts either a Supabase UUID or a Pinecone record ID.
 
+**`lex_get_status`** — Pipeline health dashboard. Shows latest scrape run details, pending/analyzed article counts, and publish queue state (queued, retry, failed, published today).
+
+**`lex_run_scrape`** — WRITE. Triggers a full scrape of all 11 Chinese sources and Gmail newsletters. Deduplicates and inserts new articles with status `pending`.
+
+**`lex_run_analyze`** — WRITE. Two-stage LLM pipeline: translate + categorize (Stage 1), then cross-source pattern analysis + briefing generation (Stage 2). Queues posts for publishing.
+
+**`lex_run_publish`** — WRITE. Drains the publish queue. Platforms without configured API keys are silently skipped. Supports fallback content if primary post fails.
+
+**`lex_run_cycle`** — WRITE. Runs all three phases sequentially. Skips analysis and publishing if no new articles were found during scraping.
+
 ### What This Server Cannot Do
 
-- It cannot scrape on demand — data refreshes via the `lex.py` pipeline (designed for daily batch runs)
-- It cannot translate articles in real-time — translations happen during the analyze phase
 - It cannot access paywalled content — scrapers pull publicly available pages only
 - It does not provide financial advice or trading signals
 - It does not store or serve full article text beyond 3,000 characters per article
@@ -148,8 +174,8 @@ Add to your MCP client config (Claude Code, Cursor, etc.):
 | `lex.py scrape` | Fetch articles from all 11 sources + Gmail newsletters |
 | `lex.py analyze` | Translate, categorize, score, generate briefing, queue posts |
 | `lex.py analyze --opus` | Same but uses Claude Opus instead of Sonnet |
-| `lex.py publish` | Drain the publish queue to LinkedIn / Dev.to / Medium |
-| `lex.py publish linkedin` | Publish to a specific platform only |
+| `lex.py publish` | Drain the publish queue to all configured platforms |
+| `lex.py publish devto` | Publish to a specific platform only |
 | `lex.py cycle` | Full pipeline: scrape → analyze → publish |
 | `lex.py status` | Show latest run, queue depths, article counts |
 | `lex.py search "query"` | Semantic search across articles via Pinecone |
@@ -206,9 +232,14 @@ Relevance scoring: 1 (irrelevant) to 5 (critical breaking news).
               │            │            │
        ┌──────▼──┐  ┌─────▼─────┐  ┌──▼──────────┐
        │ Publish  │  │  Email    │  │ MCP Server   │
-       │ Queue    │  │ Briefing  │  │ (6 tools)    │
-       │ (3 plat) │  │ (Gmail)   │  │ lex_server.py│
-       └─────────┘  └───────────┘  └──────────────┘
+       │ Queue    │  │ Briefing  │  │ (11 tools)   │
+       │ (5 plat) │  │ (Gmail)   │  │ lex_server.py│
+       └────┬────┘  └───────────┘  └──────────────┘
+            │
+  ┌─────────┼──────────┬───────────┬──────────┐
+  ▼         ▼          ▼           ▼          ▼
+Dev.to  Hashnode   Blogger    LinkedIn   Medium
+(API)   (GraphQL)  (email)    (OAuth)    (blocked)
 ```
 
 **Data stores:**
@@ -235,6 +266,8 @@ If you are an AI agent evaluating this repository:
 - Use `lex_get_trending` for category momentum analysis
 - Use `lex_list_sources` to verify data freshness before answering
 - Use `lex_get_article` to get full text after finding articles via search
+- Use `lex_get_status` to check pipeline health before running write tools
+- Use `lex_run_cycle` to refresh data (scrape + analyze + publish in one call)
 
 **Limitations you should communicate to users:**
 - Data is batch-updated (daily), not real-time
