@@ -34,10 +34,17 @@ mcp = FastMCP(
         "Read tools: lex_search_articles (topic queries), lex_get_briefing "
         "(daily briefing), lex_get_signals (emerging trends), lex_list_sources "
         "(source health), lex_get_trending (category momentum), lex_get_article "
-        "(full article detail), lex_get_status (pipeline health). "
+        "(full article detail), lex_get_status (pipeline health), "
+        "lex_vector_search (semantic pgvector search), lex_get_pending_actions "
+        "(action items by status), lex_get_opportunities (opportunities by status/type), "
+        "lex_get_daily_digest (daily agent activity summary). "
         "Write tools: lex_run_scrape (fetch new articles), lex_run_analyze "
         "(translate + categorize + briefing), lex_run_publish (drain publish "
         "queue), lex_run_cycle (full pipeline: scrape + analyze + publish). "
+        "Multi-agent write tools: lex_store_research (Scout stores research items), "
+        "lex_store_analysis (Analyst stores reports), lex_store_opportunity "
+        "(Strategist stores opportunities), lex_store_action_item (Executor stores "
+        "action items), lex_log_agent_run (log agent execution metadata). "
         "Write tools modify database state and call external APIs. "
         "All data is sourced from 11 Chinese-language outlets and translated to English."
     ),
@@ -636,6 +643,419 @@ def lex_run_cycle() -> dict:
         "scrape": scrape_result,
         "analyze": analyze_result,
         "publish": publish_result,
+    }
+
+
+# ── Multi-Agent Tools ─────────────────────────────────────
+
+@mcp.tool
+def lex_store_research(
+    title: str,
+    body: str,
+    source: str,
+    category: str = "general",
+    relevance: int = 3,
+    source_url: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    """Store a research item from the Scout agent.
+
+    WRITE OPERATION: Inserts a new research item into the research_items
+    table with optional embedding for vector search.
+
+    Args:
+        title: Research item title
+        body: Full text content
+        source: Where this came from (e.g., 'sam_gov', 'rss', 'web_search')
+        category: Category (e.g., 'opportunity', 'technology', 'market', 'contract')
+        relevance: Relevance score 1-5
+        source_url: URL of the source (optional)
+        metadata: Additional metadata as JSON (optional)
+
+    Returns dict with 'id' of the created research item.
+    """
+    from lib.db import _get_client
+    from lib.vectors import embed_text
+
+    client = _get_client()
+    embedding = embed_text(f"{title}\n\n{body[:2000]}")
+
+    row = {
+        "title": title,
+        "body": body,
+        "source": source,
+        "category": category,
+        "relevance": relevance,
+        "source_url": source_url,
+        "metadata": metadata or {},
+    }
+    if embedding:
+        row["embedding"] = embedding
+
+    result = client.table("research_items").insert(row).execute()
+    return {"id": result.data[0]["id"], "embedded": embedding is not None}
+
+
+@mcp.tool
+def lex_store_analysis(
+    report_type: str,
+    title: str,
+    body: str,
+    confidence: float = 0.5,
+    source_items: Optional[list] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    """Store an analysis report from the Analyst agent.
+
+    WRITE OPERATION: Inserts a new analysis report.
+
+    Args:
+        report_type: Type of report ('trend', 'anomaly', 'briefing', 'pattern')
+        title: Report title
+        body: Full report text
+        confidence: Confidence score 0.0-1.0
+        source_items: List of source item UUIDs that this report is based on
+        metadata: Additional metadata
+
+    Returns dict with 'id' of the created report.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    result = client.table("analysis_reports").insert({
+        "report_type": report_type,
+        "title": title,
+        "body": body,
+        "confidence": confidence,
+        "source_items": source_items or [],
+        "metadata": metadata or {},
+    }).execute()
+    return {"id": result.data[0]["id"]}
+
+
+@mcp.tool
+def lex_store_opportunity(
+    title: str,
+    description: str,
+    opp_type: str,
+    priority: int = 3,
+    estimated_value: Optional[str] = None,
+    deadline: Optional[str] = None,
+    source_reports: Optional[list] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    """Store an opportunity from the Strategist agent.
+
+    WRITE OPERATION: Inserts a new opportunity assessment.
+
+    Args:
+        title: Opportunity title
+        description: Full description
+        opp_type: Type ('contract', 'product', 'partnership', 'content', 'grant')
+        priority: Priority 1-5 (1=highest)
+        estimated_value: Estimated value (e.g., '$10K-50K', 'recurring $2K/mo')
+        deadline: Deadline date as ISO string (YYYY-MM-DD)
+        source_reports: List of analysis report UUIDs this is based on
+        metadata: Additional metadata
+
+    Returns dict with 'id' of the created opportunity.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    row = {
+        "title": title,
+        "description": description,
+        "opp_type": opp_type,
+        "priority": priority,
+        "estimated_value": estimated_value,
+        "source_reports": source_reports or [],
+        "metadata": metadata or {},
+    }
+    if deadline:
+        row["deadline"] = deadline
+
+    result = client.table("opportunities").insert(row).execute()
+    return {"id": result.data[0]["id"]}
+
+
+@mcp.tool
+def lex_store_action_item(
+    title: str,
+    description: str,
+    action_type: str,
+    priority: int = 3,
+    deadline: Optional[str] = None,
+    deliverable: Optional[str] = None,
+    requires_human: bool = False,
+    source_reports: Optional[list] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    """Store an action item from the Executor agent.
+
+    WRITE OPERATION: Inserts a new action item.
+
+    Args:
+        title: Action item title
+        description: What needs to be done
+        action_type: Type ('proposal', 'content', 'outreach', 'invoice', 'follow_up', 'technical')
+        priority: Priority 1-5 (1=highest)
+        deadline: Deadline as ISO date (YYYY-MM-DD)
+        deliverable: What the output should be
+        requires_human: Whether human approval is needed before execution
+        source_reports: List of report UUIDs this stems from
+        metadata: Additional metadata
+
+    Returns dict with 'id' of the created action item.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    row = {
+        "title": title,
+        "description": description,
+        "action_type": action_type,
+        "priority": priority,
+        "deliverable": deliverable,
+        "requires_human": requires_human,
+        "source_reports": source_reports or [],
+        "metadata": metadata or {},
+    }
+    if deadline:
+        row["deadline"] = deadline
+
+    result = client.table("action_items").insert(row).execute()
+    return {"id": result.data[0]["id"]}
+
+
+@mcp.tool
+def lex_get_pending_actions(
+    status: str = "pending",
+    requires_human: Optional[bool] = None,
+    limit: int = 20,
+) -> dict:
+    """Get action items by status, optionally filtered to human-required items.
+
+    Use this to check what actions are pending, which need human approval,
+    or what has been completed.
+
+    Args:
+        status: Filter by status ('pending', 'in_progress', 'blocked', 'completed', 'cancelled')
+        requires_human: If True, only items needing human approval. If False, only automated. Omit for all.
+        limit: Max results (1-100, default 20)
+
+    Returns dict with 'items' list and 'total' count.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    limit = max(1, min(limit, 100))
+
+    query = client.table("action_items") \
+        .select("*") \
+        .eq("status", status) \
+        .order("priority") \
+        .order("created_at", desc=True) \
+        .limit(limit)
+
+    if requires_human is not None:
+        query = query.eq("requires_human", requires_human)
+
+    result = query.execute()
+
+    return {
+        "items": result.data,
+        "total": len(result.data),
+        "filter": {"status": status, "requires_human": requires_human},
+    }
+
+
+@mcp.tool
+def lex_get_opportunities(
+    status: str = "identified",
+    opp_type: Optional[str] = None,
+    min_priority: int = 5,
+    limit: int = 20,
+) -> dict:
+    """Get opportunities by status and type.
+
+    Use this to review identified opportunities, track which are being
+    pursued, or find high-priority items.
+
+    Args:
+        status: Filter by status ('identified', 'evaluating', 'pursuing', 'won', 'lost', 'declined')
+        opp_type: Filter by type ('contract', 'product', 'partnership', 'content', 'grant'). Omit for all.
+        min_priority: Maximum priority number to include (1=highest, 5=lowest). Default 5 (all).
+        limit: Max results (1-100, default 20)
+
+    Returns dict with 'opportunities' list and 'total' count.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    limit = max(1, min(limit, 100))
+
+    query = client.table("opportunities") \
+        .select("*") \
+        .eq("status", status) \
+        .lte("priority", min_priority) \
+        .order("priority") \
+        .order("created_at", desc=True) \
+        .limit(limit)
+
+    if opp_type:
+        query = query.eq("opp_type", opp_type)
+
+    result = query.execute()
+
+    return {
+        "opportunities": result.data,
+        "total": len(result.data),
+    }
+
+
+@mcp.tool
+def lex_log_agent_run(
+    agent_id: str,
+    status: str,
+    run_type: str = "scheduled",
+    items_processed: int = 0,
+    items_created: int = 0,
+    duration_s: Optional[float] = None,
+    error: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    """Log an agent run to the agent_runs table.
+
+    WRITE OPERATION: Records agent execution metadata for monitoring.
+
+    Args:
+        agent_id: Which agent ran ('scout', 'analyst', 'strategist', 'synthesizer', 'executor', 'chief', 'email')
+        status: Run status ('started', 'completed', 'failed', 'timeout')
+        run_type: Type of run ('scheduled', 'triggered', 'manual')
+        items_processed: Number of items the agent processed
+        items_created: Number of new items the agent created
+        duration_s: How long the run took in seconds
+        error: Error message if failed
+        metadata: Additional run metadata
+
+    Returns dict with 'id' of the agent run log entry.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    row = {
+        "agent_id": agent_id,
+        "status": status,
+        "run_type": run_type,
+        "items_processed": items_processed,
+        "items_created": items_created,
+        "metadata": metadata or {},
+    }
+    if duration_s is not None:
+        row["duration_s"] = duration_s
+    if error:
+        row["error"] = error
+    if status in ("completed", "failed", "timeout"):
+        row["finished_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = client.table("agent_runs").insert(row).execute()
+    return {"id": result.data[0]["id"]}
+
+
+@mcp.tool
+def lex_vector_search(
+    query: str,
+    table: str = "articles",
+    limit: int = 10,
+    min_similarity: float = 0.5,
+    days: Optional[int] = None,
+) -> dict:
+    """Semantic vector search across articles or research items using pgvector.
+
+    Use this for finding semantically related content across the knowledge base.
+    More powerful than lex_search_articles as it searches the local pgvector
+    database directly instead of requiring Pinecone.
+
+    Args:
+        query: Natural language search query
+        table: Which table to search ('articles' or 'research_items')
+        limit: Max results (1-50, default 10)
+        min_similarity: Minimum cosine similarity threshold (0.0-1.0, default 0.5)
+        days: Only search items from the last N days (optional)
+
+    Returns dict with 'results' list containing matched items with similarity scores.
+    """
+    from lib.vectors import vector_search
+
+    limit = max(1, min(limit, 50))
+    results = vector_search(
+        query_text=query,
+        table=table,
+        limit=limit,
+        min_similarity=min_similarity,
+        filters={"days": days} if days else None,
+    )
+
+    return {
+        "results": results,
+        "total": len(results),
+        "query": query,
+        "table": table,
+    }
+
+
+@mcp.tool
+def lex_get_daily_digest() -> dict:
+    """Generate a daily digest of all agent activity for the Chief agent.
+
+    Summarizes: what each agent did today, pending action items needing
+    human attention, opportunities identified, and pipeline health.
+
+    Returns dict with sections for each area of activity.
+    """
+    from lib.db import _get_client
+
+    client = _get_client()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+
+    # Today's agent runs
+    runs = client.table("agent_runs") \
+        .select("agent_id, status, items_processed, items_created, duration_s, error") \
+        .gte("started_at", today) \
+        .order("started_at", desc=True) \
+        .execute()
+
+    # Pending human-required actions
+    human_actions = client.table("action_items") \
+        .select("title, action_type, priority, deadline") \
+        .eq("requires_human", True) \
+        .eq("status", "pending") \
+        .order("priority") \
+        .limit(10) \
+        .execute()
+
+    # New opportunities today
+    new_opps = client.table("opportunities") \
+        .select("title, opp_type, priority, estimated_value") \
+        .gte("created_at", today) \
+        .order("priority") \
+        .execute()
+
+    # Pipeline status
+    pending_articles = client.table("articles") \
+        .select("id", count="exact") \
+        .eq("status", "pending") \
+        .execute()
+
+    return {
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "agent_activity": runs.data,
+        "needs_your_attention": human_actions.data,
+        "new_opportunities": new_opps.data,
+        "pipeline": {
+            "articles_pending": pending_articles.count,
+        },
     }
 
 
