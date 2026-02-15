@@ -99,6 +99,93 @@ def publish_devto(body: str, title: Optional[str] = None) -> str:
     return str(resp.json()["id"])
 
 
+def publish_hashnode(body: str, title: Optional[str] = None) -> str:
+    """Publish an article to Hashnode via GraphQL API.
+
+    Requires HASHNODE_API_KEY and HASHNODE_PUBLICATION_ID env vars.
+    Returns the post ID as platform_id.
+    """
+    import httpx
+
+    api_key = os.environ.get("HASHNODE_API_KEY")
+    pub_id = os.environ.get("HASHNODE_PUBLICATION_ID")
+    if not api_key:
+        raise RuntimeError("HASHNODE_API_KEY not set")
+    if not pub_id:
+        raise RuntimeError("HASHNODE_PUBLICATION_ID not set")
+
+    mutation = """
+    mutation PublishPost($input: PublishPostInput!) {
+        publishPost(input: $input) {
+            post { id }
+        }
+    }
+    """
+
+    variables = {
+        "input": {
+            "title": title or body[:60],
+            "contentMarkdown": body,
+            "publicationId": pub_id,
+            "tags": [
+                {"slug": "artificial-intelligence", "name": "Artificial Intelligence"},
+                {"slug": "china", "name": "China"},
+                {"slug": "technology-news", "name": "Technology News"},
+            ],
+        }
+    }
+
+    resp = httpx.post(
+        "https://gql.hashnode.com/",
+        json={"query": mutation, "variables": variables},
+        headers={"Authorization": api_key},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if "errors" in data:
+        raise RuntimeError(f"Hashnode GraphQL error: {data['errors']}")
+
+    return str(data["data"]["publishPost"]["post"]["id"])
+
+
+def publish_blogger(body: str, title: Optional[str] = None) -> str:
+    """Publish a post to Blogger via Mail2Blogger (email-to-post).
+
+    Requires BLOGGER_EMAIL env var (the secret {hash}@blogger.com address).
+    Sends an email where subject=title, body=HTML content.
+    Returns "emailed" as platform_id (no tracking ID available).
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+
+    blogger_addr = os.environ.get("BLOGGER_EMAIL")
+    if not blogger_addr:
+        raise RuntimeError("BLOGGER_EMAIL not set")
+
+    sender = os.environ.get("LEX_EMAIL_FROM", "lex@localhost")
+
+    msg = MIMEText(body, "html")
+    msg["Subject"] = title or body[:60]
+    msg["From"] = sender
+    msg["To"] = blogger_addr
+
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.starttls()
+        if smtp_user and smtp_pass:
+            server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+
+    log.info(f"[blogger] Emailed post to {blogger_addr}")
+    return "emailed"
+
+
 def publish_medium(body: str, title: Optional[str] = None) -> str:
     """Publish a post to Medium via API.
 
@@ -143,6 +230,8 @@ def publish_medium(body: str, title: Optional[str] = None) -> str:
 PUBLISHERS = {
     "linkedin": publish_linkedin,
     "devto": publish_devto,
+    "hashnode": publish_hashnode,
+    "blogger": publish_blogger,
     "medium": publish_medium,
 }
 
@@ -180,6 +269,8 @@ def drain_queue(platform: Optional[str] = None, limit: int = 20) -> Dict:
         env_keys = {
             "linkedin": "LINKEDIN_ACCESS_TOKEN",
             "devto": "DEVTO_API_KEY",
+            "hashnode": "HASHNODE_API_KEY",
+            "blogger": "BLOGGER_EMAIL",
             "medium": "MEDIUM_INTEGRATION_TOKEN",
         }
         if not os.environ.get(env_keys.get(plat, "")):

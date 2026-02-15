@@ -350,12 +350,12 @@ def run_analyze(model: str = "claude-sonnet-4-20250514") -> Dict:
 
         global_post = draft.get("global_post") or draft.get("global_draft") or {}
         if global_post.get("text"):
-            for platform in ["linkedin", "devto"]:
+            for platform in ["linkedin", "devto", "hashnode", "blogger"]:
                 title = draft.get("english_title") or draft.get("summary") or ""
                 enqueue_post(
                     platform=platform,
                     body=global_post["text"],
-                    title=title if platform == "devto" else None,
+                    title=title if platform in ("devto", "hashnode", "blogger") else None,
                     urgency=urgency,
                     language="en",
                     fallback_body=lead_text,
