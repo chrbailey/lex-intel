@@ -1,0 +1,36 @@
+# Lex Intel
+
+> Chinese AI intelligence pipeline and MCP server. Scrapes 11 Chinese-language
+> sources daily, translates and analyzes articles with Claude, and serves
+> curated intelligence through 21 MCP tools. Built by chrbailey, a
+> service-disabled veteran-owned small business (SDVOSB).
+
+Data is refreshed daily via automated scraping. Articles are translated from
+Chinese, categorized into 13 domains, scored for relevance (1-5), and
+synthesized into Bloomberg-style intelligence briefings. Multi-agent
+orchestration runs 7 specialized agents autonomously.
+
+## Core Documentation
+- [README](https://github.com/chrbailey/lex-intel/blob/main/README.md): Project overview, MCP tool reference, setup guide
+- [Architecture](https://github.com/chrbailey/lex-intel/blob/main/docs/MULTI_AGENT_ARCHITECTURE.md): Multi-agent system design and data flow
+
+## Integration
+- [MCP Server Config](https://github.com/chrbailey/lex-intel/blob/main/README.md#run-the-mcp-server): How to connect the MCP server to Claude Code, Cursor, or any MCP client
+- [MCP Tool Reference](https://github.com/chrbailey/lex-intel/blob/main/README.md#mcp-tools): All 21 tools with parameters and usage guidance
+
+## Agent System
+- [Agent Definitions](https://github.com/chrbailey/lex-intel/tree/main/.claude/agents): 7 core agents + 4 rotating guest agents
+- [Orchestrator](https://github.com/chrbailey/lex-intel/blob/main/.claude/orchestrate.py): Multi-agent pipeline runner (daily, weekly, email, status modes)
+
+## Blueprints (Cross-Repo Standards)
+- [Repository Standards](https://github.com/chrbailey/lex-intel/blob/main/blueprints/repo-standards.md): Master conventions for all chrbailey repos
+- [llms.txt Template](https://github.com/chrbailey/lex-intel/blob/main/blueprints/llms-txt.md): How to create llms.txt for any repo
+- [GitHub Pages Setup](https://github.com/chrbailey/lex-intel/blob/main/blueprints/github-pages.md): Agent-optimized static site pattern
+- [CLAUDE.md Standard](https://github.com/chrbailey/lex-intel/blob/main/blueprints/claude-md.md): Template for Claude Code project files
+- [Agent Publishing](https://github.com/chrbailey/lex-intel/blob/main/blueprints/agent-publishing.md): Automated content publishing pipeline
+- [Hub Site Design](https://github.com/chrbailey/lex-intel/blob/main/blueprints/hub-site.md): chrbailey.github.io master site blueprint
+
+## Optional
+- [CLI Commands](https://github.com/chrbailey/lex-intel/blob/main/README.md#cli-commands): Manual pipeline commands
+- [Article Categories](https://github.com/chrbailey/lex-intel/blob/main/README.md#article-categories): 13 classification categories
+- [Database Schema](https://github.com/chrbailey/lex-intel/blob/main/supabase/migrations/001_initial_schema.sql): Supabase table definitions
