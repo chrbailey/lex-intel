@@ -1,21 +1,19 @@
 """
 Lex scrape module — wraps Ahgen's scrapers with Supabase persistence.
 
-Imports Ahgen's fetch functions directly (via sys.path), deduplicates
+Imports Ahgen's fetch functions from local ahgen/ subpackage, deduplicates
 against the dedup_titles table, and inserts new articles into Supabase.
 """
 from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import List, Dict, Tuple
 
-# Add Ahgen to path so we can import its scrapers
+# Ahgen scrapers are now a local subpackage (ahgen/)
+# AHGEN_DIR still used for config/state data files (config.json, state.json)
 AHGEN_DIR = Path(os.environ.get("AHGEN_DIR", Path.home() / "ahgen"))
-if str(AHGEN_DIR) not in sys.path:
-    sys.path.insert(0, str(AHGEN_DIR))
 
 from lib.db import (
     start_scrape_run,
@@ -31,7 +29,7 @@ log = logging.getLogger("lex.scrape")
 
 def _fetch_china_sources() -> Tuple[List[Dict], List[str], List[str]]:
     """Run all Ahgen scrapers, return (articles, ok_sources, failed_sources)."""
-    from scrapers import (
+    from ahgen.scrapers import (
         fetch_36kr, fetch_huxiu, fetch_infoq_china, fetch_csdn,
         fetch_sap_china, fetch_kingdee, fetch_yonyou,
         fetch_leiphone, fetch_caixin, fetch_jiemian, fetch_zhidx,
@@ -79,7 +77,7 @@ def _fetch_newsletters() -> Tuple[List[Dict], bool]:
     Returns (articles, success). Does not fail the whole run if Gmail is down.
     """
     try:
-        from ahgen import fetch_newsletters, load_json, CONFIG_PATH, STATE_PATH
+        from ahgen.ahgen import fetch_newsletters, load_json, CONFIG_PATH, STATE_PATH
         config = load_json(CONFIG_PATH)
         state = load_json(STATE_PATH, default={"processed_newsletter_ids": []})
 
