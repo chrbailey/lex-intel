@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -91,7 +92,11 @@ def _parse_claude_json(response_text: str) -> Any:
 
 
 async def _agent_sdk_complete(prompt: str) -> str:
-    """Call Claude via Agent SDK (Max subscription)."""
+    """Call Claude via Agent SDK (Max subscription).
+
+    Uses the same auth as Claude Code -- routes through Max subscription
+    so LLM calls are flat-rate, not per-token.
+    """
     from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 
     chunks = []  # type: List[str]
@@ -110,15 +115,39 @@ async def _agent_sdk_complete(prompt: str) -> str:
 
 
 def _llm_complete(prompt: str, max_tokens: int = 4096) -> str:
-    """Call Claude via Agent SDK using Max subscription.
+    """Route LLM call through Max subscription (Agent SDK) or API key.
 
-    Uses the same auth as Claude Code — no API key or token needed.
-    Unsets CLAUDECODE so this works when called from inside Claude Code
-    (e.g. lex_server.py MCP tool).
+    Prefers Agent SDK (free via Max subscription, uses Claude Code CLI auth).
+    Falls back to direct Anthropic API (paid per-token) when CLI is unavailable.
+
+    Unsets CLAUDECODE env var so this works when called from inside Claude Code
+    (e.g. lex_server.py MCP tool invocations).
     """
-    import os
     os.environ.pop("CLAUDECODE", None)
-    return asyncio.run(_agent_sdk_complete(prompt))
+
+    # Primary path: Agent SDK (Max subscription — flat rate, no per-token cost)
+    try:
+        return asyncio.run(_agent_sdk_complete(prompt))
+    except Exception as exc:
+        log.warning("Agent SDK call failed (%s), trying API key fallback", exc)
+
+    # Fallback: direct Anthropic API (per-token billing)
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "LLM call failed: Agent SDK unavailable and ANTHROPIC_API_KEY not set. "
+            "Install Claude Code CLI for Max subscription routing, or set "
+            "ANTHROPIC_API_KEY in .env for direct API access."
+        )
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text
 
 
 # ── Template Loader ─────────────────────────────────────────
