@@ -16,19 +16,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Load .env
-ENV_PATH = Path(__file__).parent / ".env"
-if ENV_PATH.exists():
-    for line in ENV_PATH.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ[k.strip()] = v.strip()
+# Load .env (won't override existing env vars)
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 # Setup logging
 logging.basicConfig(

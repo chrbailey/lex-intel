@@ -11,21 +11,15 @@ Run: python lex_server.py           (stdio transport)
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 from fastmcp import FastMCP
 
-# Load .env from project root
-_ENV_PATH = Path(__file__).parent / ".env"
-if _ENV_PATH.exists():
-    for _line in _ENV_PATH.read_text().splitlines():
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip())
+# Load .env from project root (won't override existing env vars)
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 mcp = FastMCP(
     "Lex Intel",

@@ -18,20 +18,25 @@ from typing import Any, Dict, List, Optional
 from supabase import create_client, Client
 
 # Load .env from project root (so db.py works from any entry point)
-_ENV_PATH = Path(__file__).parent.parent / ".env"
-if _ENV_PATH.exists():
-    for _line in _ENV_PATH.read_text().splitlines():
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip())
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
+
+_client: Optional[Client] = None
 
 
 def _get_client() -> Client:
-    """Create Supabase client from environment variables."""
-    url = os.environ["SUPABASE_URL"]
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ["SUPABASE_ANON_KEY"]
-    return create_client(url, key)
+    """Return a cached Supabase client (singleton per process)."""
+    global _client
+    if _client is None:
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_ANON_KEY")
+        if not url or not key:
+            raise RuntimeError(
+                "Missing Supabase credentials. Set SUPABASE_URL and "
+                "SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) in .env"
+            )
+        _client = create_client(url, key)
+    return _client
 
 
 def _normalize_title(title: str) -> str:

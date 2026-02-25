@@ -273,10 +273,10 @@ def run_analyze() -> Dict:
 
     log.info(f"Analyzing {len(articles)} pending articles")
 
-    # Convert Supabase rows to working format
+    # Convert Supabase rows to working format (each carries its own UUID)
     working = []
-    id_map = {}  # type: Dict[int, str]
-    for i, a in enumerate(articles):
+    all_ids = {a["id"] for a in articles}
+    for a in articles:
         working.append({
             "source": a["source"],
             "title": a["title"],
@@ -287,28 +287,36 @@ def run_analyze() -> Dict:
             "url": a.get("url") or "",
             "id": a["id"],
         })
-        id_map[i] = a["id"]
 
     # Stage 1: Translate, categorize, score
     log.info("Stage 1: Translating and categorizing...")
     enriched = _stage1(working)
     log.info(f"Stage 1 complete: {len(enriched)} enriched")
 
-    # Write enrichment back to Supabase
-    for i, e in enumerate(enriched):
-        if i in id_map:
-            update_article_enrichment(
-                id_map[i],
-                english_title=e.get("english_title", ""),
-                category=e.get("category", "other"),
-                relevance=e.get("relevance", 1),
-            )
+    # Write enrichment back to Supabase using each article's own ID
+    enriched_ids = set()
+    for e in enriched:
+        article_id = e.get("id")
+        if not article_id:
+            continue
+        enriched_ids.add(article_id)
+        update_article_enrichment(
+            article_id,
+            english_title=e.get("english_title", ""),
+            category=e.get("category", "other"),
+            relevance=e.get("relevance", 1),
+        )
+
+    # Mark articles dropped by Stage 1 as failed (not silently "analyzed")
+    dropped_ids = list(all_ids - enriched_ids)
+    if dropped_ids:
+        log.warning(f"Stage 1 dropped {len(dropped_ids)} articles — marking as enrichment_failed")
+        mark_articles_status(dropped_ids, "enrichment_failed")
 
     # Upsert enriched articles to Pinecone (with enrichment data)
-    for i, e in enumerate(enriched):
-        if i in id_map:
-            e["article_id"] = id_map[i]
-            e["published_at"] = e.get("date", "")
+    for e in enriched:
+        e["article_id"] = e.get("id", "")
+        e["published_at"] = e.get("date", "")
     upsert_articles(enriched)
 
     # Filter to relevance >= 3
@@ -387,9 +395,10 @@ def run_analyze() -> Dict:
 
     log.info(f"Queued {posts_queued} posts for publishing")
 
-    # Mark all analyzed articles
-    all_ids = [a["id"] for a in articles]
-    mark_articles_status(all_ids, "analyzed")
+    # Mark only successfully enriched articles as analyzed (dropped ones
+    # were already marked "enrichment_failed" above)
+    if enriched_ids:
+        mark_articles_status(list(enriched_ids), "analyzed")
 
     finish_scrape_run(
         run_id,
