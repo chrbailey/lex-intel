@@ -1,0 +1,25 @@
+# Lex Intel — China AI Daily Briefing
+
+> Daily intelligence briefings on Chinese AI developments, scraped from 12 Chinese-language sources and analyzed by AI.
+
+## What This Site Offers
+
+- **Daily briefings** analyzing Chinese AI news across enterprise software, semiconductors, autonomous driving, regulation, and startups
+- **Structured data** via JSON Feed at https://chrbailey.github.io/lex-intel/feed.json
+- **12 Chinese sources**: 36kr, Huxiu, InfoQ China, CSDN, SAP China, Kingdee, Yonyou, Leiphone, Caixin, Jiemian, Zhidx, Gmail newsletters
+- **Analysis format**: LEAD / PATTERNS / SIGNALS / WATCHLIST / DATA sections
+
+## For Agents
+
+- JSON Feed: https://chrbailey.github.io/lex-intel/feed.json (JSON Feed 1.1 format)
+- Each feed item has `content_text` with the full briefing markdown
+- Custom `_lex` field includes `article_count` and `model_used`
+- Updated daily around 05:00 UTC
+
+## Topics Covered
+
+China AI policy, DeepSeek, Baidu, Alibaba Cloud, Tencent AI, Huawei Ascend, semiconductor supply chain, enterprise ERP (Yonyou, Kingdee, SAP China), autonomous driving (XPeng, BYD, Baidu Apollo), robotics, regulation (CAC, MIIT), venture funding, US-China tech competition
+
+## Source Code
+
+https://github.com/chrbailey/lex-intel

@@ -1,0 +1,28 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Lex Intel \u2014 China AI Daily Briefing",
+  "description": "Daily intelligence briefings on Chinese AI developments. Scraped from 12 Chinese-language sources, analyzed by AI, published for humans and agents.",
+  "home_page_url": "https://chrbailey.github.io/lex-intel",
+  "feed_url": "https://chrbailey.github.io/lex-intel/feed.json",
+  "language": "en",
+  "items": [
+    {
+      "id": "b9824e8a-988f-49a7-b825-361ae199bfed",
+      "url": "https://chrbailey.github.io/lex-intel/archive/2026-03-04.html",
+      "title": "China AI Briefing \u2014 March 04, 2026",
+      "content_text": "# China Tech Morning Briefing\n**March 3, 2026**\n\n## LEAD: Pentagon Freezes Out Anthropic as US-China Tech Decoupling Deepens\n\nThe most significant development today is Anthropic's exclusion from Pentagon AI projects, marking a dramatic escalation in Washington's tech nationalism. Multiple sources confirm the Claude developer was removed from defense-related initiatives following political pressure, with OpenAI reportedly positioning itself as the preferred alternative. This isn't just corporate competition\u2014it's a harbinger of how geopolitical tensions are reshaping AI development globally, with direct implications for China's domestic AI champions.\n\n## PATTERNS: Domestic Tech Stack Integration Accelerates\n\nTwo critical partnership announcements signal China's push toward self-sufficiency: **Yonyou's integration of DeepSeek-V3 and R1 models** into its enterprise software platform directly challenges Western enterprise AI solutions. This \"domestic software + domestic models\" strategy mirrors earlier moves by Alibaba and Tencent, suggesting a coordinated industry response to supply chain risks. The deployment of China Huadian's 'Smart+' talent platform adds another data point to this trend.\n\n## SIGNALS: 6G and Autonomous Driving Timelines\n\nQualcomm CEO Cristiano Amon's prediction of **6G commercialization by 2029** provides a concrete timeline for the next connectivity revolution, with \"AI everywhere\" as the core value proposition. Separately, **XPeng's claim that full self-driving may arrive within three years** (by 2029) creates an interesting convergence point\u2014both technologies maturing simultaneously could unlock new use cases. Watch for Chinese telecom giants' responses to Qualcomm's timeline.\n\n## WATCHLIST: OpenClaw Mystery and ByteDance's Trump Card\n\nThree separate articles discuss **OpenClaw**, a suddenly trending technology whose exact nature and implications remain unclear\u2014classic early-stage hype cycle behavior. Meanwhile, ByteDance is teasing a new \"trump card\" product. Both warrant monitoring for concrete announcements.\n\nMiddle East conflict's impact on **Amazon cloud facilities** could accelerate China's push for regional data sovereignty and indigenous cloud alternatives.\n\n## DATA\n- **MOVA TPEAK**: \u00a5100M order signed (Feb 13 context)\n- **Xiaomi Auto**: 600,000+ cumulative deliveries (Feb 13 context)\n- **Tsinghua embodied brain company**: Hundreds of millions RMB raised in 2 months (Feb 14 context)\n- **Timeline targets**: 6G by 2029 (Qualcomm), FSD by 2029 (XPeng)\n\n**Bottom Line**: US regulatory actions against Anthropic validate China's bet on indigenous AI development. The domestic enterprise software + Chinese LLM integration trend is no longer speculative\u2014it's operational.",
+      "date_published": "2026-03-04T03:46:25.785847+00:00",
+      "summary": "# China Tech Morning Briefing\n**March 3, 2026**\n\n## LEAD: Pentagon Freezes Out Anthropic as US-China Tech Decoupling Deepens\n\nThe most significant development today is Anthropic's exclusion from Pentagon AI projects, marking a dramatic escalation in Washington's tech nationalism. Multiple sources co...",
+      "tags": [
+        "china",
+        "ai",
+        "intelligence",
+        "briefing"
+      ],
+      "_lex": {
+        "article_count": 13,
+        "model_used": "agent-sdk"
+      }
+    }
+  ]
+}

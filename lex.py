@@ -85,11 +85,18 @@ def cmd_cycle():
     publish_result = drain_queue()
     log.info(f"Publish: {publish_result['published']} published, {publish_result['failed']} failed")
 
+    # 4. Regenerate static site
+    log.info("Phase 4: Regenerating static site...")
+    from lib.static_site import generate_site
+    site_result = generate_site()
+    log.info(f"Site: {site_result['pages']} pages generated")
+
     log.info("=== Lex full cycle complete ===")
     print(json.dumps({
         "scrape": scrape_result,
         "analyze": analyze_result,
         "publish": publish_result,
+        "site": site_result,
     }, indent=2, default=str))
 
 
@@ -201,6 +208,13 @@ def cmd_patterns():
     print(f"  Total: {stats['briefings']['total']}  Emailed: {stats['briefings']['emailed']}")
 
 
+def cmd_site():
+    """Generate static site in docs/ for GitHub Pages."""
+    from lib.static_site import generate_site
+    result = generate_site()
+    print(json.dumps(result, indent=2, default=str))
+
+
 def cmd_cleanup():
     """Maintenance: archive old articles + clean dedup table."""
     from lib.db import archive_old_articles, cleanup_dedup
@@ -222,6 +236,7 @@ COMMANDS = {
     "status": cmd_status,
     "search": cmd_search,
     "patterns": cmd_patterns,
+    "site": cmd_site,
     "cleanup": cmd_cleanup,
 }
 
