@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
+from lib.db import _get_client
 
 log = logging.getLogger("lex.site")
 
@@ -29,17 +28,6 @@ SITE_DESC = (
     "Scraped from 12 Chinese-language sources, analyzed by AI, "
     "published for humans and agents."
 )
-
-
-def _get_supabase():
-    """Lazy Supabase client."""
-    load_dotenv()
-    from supabase import create_client
-
-    return create_client(
-        os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_ANON_KEY"],
-    )
 
 
 def _md_to_html(md: str) -> str:
@@ -181,7 +169,7 @@ def _page_html(title: str, body: str, nav: bool = True) -> str:
 
 def generate_site() -> Dict[str, Any]:
     """Generate the full static site from Supabase data."""
-    sb = _get_supabase()
+    sb = _get_client()
     stats = {"briefings": 0, "articles": 0, "pages": 0}
 
     # Fetch data

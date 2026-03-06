@@ -7,9 +7,8 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Volumes/OWC drive/Dev/lex/.venv/bin/python3</string>
-        <string>/Volumes/OWC drive/Dev/lex/lex.py</string>
-        <string>cycle</string>
+        <string>/bin/bash</string>
+        <string>/Volumes/OWC drive/Dev/lex/setup/run-cycle.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
