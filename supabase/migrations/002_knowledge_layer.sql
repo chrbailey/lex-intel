@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS knowledge (
                     CHECK (impact >= 0 AND impact <= 1),
   source          text NOT NULL DEFAULT 'manual',
   source_ref      jsonb DEFAULT '{}',
-  embedding       extensions.vector(1536),
+  embedding       extensions.vector(384),
   expected_value  float GENERATED ALWAYS AS (confidence * impact) STORED,
   test_result     test_result NOT NULL DEFAULT 'untested',
   tested_at       timestamptz,
@@ -65,7 +65,7 @@ CREATE TRIGGER knowledge_updated_at
 
 -- Vector similarity search function (called via supabase.rpc)
 CREATE OR REPLACE FUNCTION match_knowledge(
-  query_embedding extensions.vector(1536),
+  query_embedding extensions.vector(384),
   match_threshold float DEFAULT 0.3,
   match_count int DEFAULT 10,
   filter_domain text DEFAULT NULL,

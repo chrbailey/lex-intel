@@ -1,29 +1,18 @@
 /**
- * OpenAI Embedding Wrapper
- * Uses text-embedding-3-small (1536 dims) for pgvector compatibility.
+ * Supabase Built-in Embedding
+ * Uses gte-small (384 dims) — no external API key needed.
+ * Available natively in Supabase Edge Functions.
  */
 
-export async function embed(text: string): Promise<number[]> {
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) throw new Error("OPENAI_API_KEY not set as Edge Function secret");
+// @ts-ignore — Supabase.ai is available in Edge Function runtime
+const session = new Supabase.ai.Session("gte-small");
 
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: text,
-    }),
+export async function embed(text: string): Promise<number[]> {
+  const output = await session.run(text, {
+    mean_pool: true,
+    normalize: true,
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI embedding failed (${res.status}): ${err}`);
-  }
-
-  const data = await res.json();
-  return data.data[0].embedding;
+  // output is a Float32Array or number[] depending on runtime
+  return Array.from(output);
 }
