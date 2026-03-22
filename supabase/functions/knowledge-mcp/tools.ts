@@ -400,14 +400,100 @@ async function handleValidate(
   });
 }
 
-// ─── synthesize (placeholder — Task 8) ──────────────────────
+// ─── synthesize ──────────────────────────────────────────────
 
 async function handleSynthesize(
-  _sb: SupabaseClient,
-  _args: Record<string, unknown>,
+  supabase: SupabaseClient,
+  args: Record<string, unknown>,
 ): Promise<string> {
+  const minConfidence = (args.min_confidence as number) || 0.7;
+  const dryRun = (args.dry_run as boolean) ?? true;
+
+  // Fetch insights above confidence threshold
+  const { data: insights, error: fetchError } = await supabase
+    .from("insights")
+    .select("*")
+    .gte("confidence", minConfidence)
+    .order("confidence", { ascending: false });
+
+  if (fetchError) {
+    return JSON.stringify({
+      error: `Failed to fetch insights: ${fetchError.message}`,
+      hint: "The insights table may not exist yet. It will be created when signal synthesis is set up.",
+    });
+  }
+
+  if (!insights || insights.length === 0) {
+    return JSON.stringify({
+      promoted: 0,
+      message: `No insights found with confidence >= ${minConfidence}`,
+    });
+  }
+
+  // Check which insights are already in knowledge (dedup)
+  const candidates = [];
+  for (const insight of insights) {
+    const text = (insight.content || insight.summary || insight.text || "") as string;
+    if (!text) continue;
+
+    const { count } = await supabase
+      .from("knowledge")
+      .select("*", { count: "exact", head: true })
+      .ilike("content", `%${text.slice(0, 50)}%`);
+
+    if ((count || 0) === 0) {
+      candidates.push({ insight, text });
+    }
+  }
+
+  if (dryRun) {
+    return JSON.stringify({
+      dry_run: true,
+      would_promote: candidates.length,
+      skipped_duplicates: insights.length - candidates.length,
+      candidates: candidates.map((c) => ({
+        insight_id: c.insight.id,
+        content_preview: c.text.slice(0, 120),
+        confidence: c.insight.confidence,
+      })),
+    });
+  }
+
+  // Promote: insert into knowledge with embedding
+  let promoted = 0;
+  const errors: string[] = [];
+
+  for (const { insight, text } of candidates) {
+    let embedding: number[] | null = null;
+    try {
+      embedding = await embed(text);
+    } catch {
+      // Continue without embedding
+    }
+
+    const { error: insertError } = await supabase.from("knowledge").insert({
+      content: text,
+      knowledge_type: (insight.type as string) || "pattern",
+      domain: (insight.domain as string) || "ai",
+      confidence: insight.confidence as number,
+      impact: (insight.impact as number) || 0.5,
+      source: "synthesis",
+      source_ref: { insight_id: insight.id, promoted_at: new Date().toISOString() },
+      embedding,
+    });
+
+    if (insertError) {
+      errors.push(`insight ${insight.id}: ${insertError.message}`);
+    } else {
+      promoted++;
+    }
+  }
+
   return JSON.stringify({
-    error: "Synthesize tool not yet implemented — Phase 2, Task 8",
+    dry_run: false,
+    promoted,
+    errors: errors.length > 0 ? errors : undefined,
+    skipped_duplicates: insights.length - candidates.length,
   });
 }
 
