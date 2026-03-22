@@ -39,8 +39,11 @@ Deno.serve(async (req) => {
   const apiKey = Deno.env.get("KNOWLEDGE_API_KEY");
   if (apiKey) {
     const url = new URL(req.url);
+    const authHeader = req.headers.get("authorization");
     const provided =
-      req.headers.get("authorization")?.replace("Bearer ", "") ||
+      (authHeader?.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7)
+        : null) ||
       url.searchParams.get("key");
     if (provided !== apiKey) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {

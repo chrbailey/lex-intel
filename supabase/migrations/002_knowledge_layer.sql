@@ -3,6 +3,9 @@
 -- One table. EV-scored. Testable. Cross-platform via MCP.
 -- ============================================================
 
+-- pgvector extension (must be in extensions schema for Supabase)
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
+
 -- Enums
 CREATE TYPE knowledge_type AS ENUM (
   'fact', 'decision', 'pattern', 'lesson', 'preference', 'context'
