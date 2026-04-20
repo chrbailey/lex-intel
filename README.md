@@ -2,7 +2,13 @@
 
 <!-- mcp-name: io.github.chrbailey/lex-intel -->
 
+[![tests](https://github.com/chrbailey/lex-intel/actions/workflows/tests.yml/badge.svg)](https://github.com/chrbailey/lex-intel/actions/workflows/tests.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
 MCP server + pipeline for Chinese AI/tech intelligence. Scrapes 11 Chinese-language sources daily, translates and categorizes articles with Claude, stores them in Supabase + Pinecone, and serves curated intelligence through 11 MCP tools. Auto-publishes briefings to Dev.to, Hashnode, and Blogger.
+
+> **Status: v0.1.0 experimental.** Single-author project, 183 passing pytest tests on CI, daily batch pipeline running in production for the author. Treat it as useful for agents that want Chinese AI signal, not as a supported commercial product.
 
 ## What It Does
 
@@ -11,6 +17,14 @@ MCP server + pipeline for Chinese AI/tech intelligence. Scrapes 11 Chinese-langu
 - **Translates and categorizes** articles into 13 categories using Claude (Stage 1)
 - **Generates briefings** in Bloomberg-style format: LEAD / PATTERNS / SIGNALS / WATCHLIST / DATA (Stage 2)
 - **Serves intelligence** through an MCP server that any AI agent can query
+
+## What This Is NOT
+
+- Not a real-time feed — the pipeline is daily-batched.
+- Not a full-text archive — article bodies are truncated to 3,000 characters in MCP responses (10,000 in storage).
+- Not English-language news — use a general news API for that.
+- Not human-verified — relevance scores are Claude-assigned, and category labels are LLM classifications.
+- Not paywall-breaking — scrapers only pull publicly available pages.
 
 ## When To Use This
 
@@ -250,6 +264,14 @@ Dev.to  Hashnode   Blogger    LinkedIn   Medium
 - Stage 1 (translate/categorize): Prompt template at `prompts/stage1.md`
 - Stage 2 (briefing/drafts): Prompt template at `prompts/stage2.md`
 - Both use Claude Sonnet by default (`--opus` flag for Opus)
+
+## Testing
+
+```bash
+python -m pytest tests/ -v
+```
+
+Current suite: 183 unit tests across `test_analyze.py`, `test_db.py`, `test_server.py`, `test_vectors.py`. CI runs on Python 3.10, 3.11, 3.12 (see `.github/workflows/tests.yml`). Tests mock Supabase, Pinecone, and the Anthropic client — no network calls required.
 
 ## For AI Agents Reading This Repository
 
