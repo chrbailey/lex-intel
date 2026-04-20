@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.b2b.newsletter</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/christopherbailey/.claude/scripts/b2b-pipeline.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Volumes/OWC drive/Dev/lex/ahgen</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>23</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Volumes/OWC drive/Dev/lex/ahgen/logs/b2b-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/OWC drive/Dev/lex/ahgen/logs/b2b-stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Volumes/OWC drive/Dev/lex/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>KeepAlive</key>
+    <false/>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>TimeOut</key>
+    <integer>600</integer>
+</dict>
+</plist>

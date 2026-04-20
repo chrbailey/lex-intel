@@ -886,6 +886,174 @@ def run_analyze_pending(config: dict, state: dict) -> dict:
     return state
 
 
+def create_b2b_gmail_draft(config: dict, html_body: str, date_str: str) -> bool:
+    """Create a Gmail draft with the B2B newsletter for breakfast review.
+
+    Uses the same OAuth credentials as send_briefing_email but creates a
+    draft instead of sending directly — the user reviews and sends manually.
+    """
+    creds = get_gmail_credentials(config)
+    if not creds:
+        log.error("No Gmail credentials for B2B draft")
+        return False
+
+    to_address = config.get("draft_recipient", config.get("gmail_user", ""))
+    if not to_address:
+        log.error("No draft_recipient configured for B2B draft")
+        return False
+
+    try:
+        service = build("gmail", "v1", credentials=creds)
+
+        import base64
+        from email.mime.text import MIMEText
+
+        subject = "Beijing to Breakfast — {}".format(date_str)
+
+        message = MIMEText(html_body, "html", "utf-8")
+        message["to"] = to_address
+        message["subject"] = subject
+
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+        service.users().drafts().create(
+            userId="me", body={"message": {"raw": raw}}
+        ).execute()
+
+        log.info("B2B Gmail draft created: %s", subject)
+        return True
+
+    except Exception as e:
+        log.error("Failed to create B2B Gmail draft: %s", e)
+        return False
+
+
+def run_b2b_cycle(config: dict, state: dict) -> dict:
+    """Run Beijing to Breakfast newsletter cycle.
+
+    1. Scrape all Chinese sources + dedup
+    2. Two-stage Claude analysis (translate/categorize, then pattern analysis)
+    3. Format as B2B newsletter via substack.format_b2b_newsletter()
+    4. Submit for governance review via governance.submit_for_review()
+    5. Create a Gmail draft for breakfast review
+    6. Log the operation
+    """
+    cycle_start = datetime.now(timezone.utc)
+    log.info("=== Beijing to Breakfast cycle at %s ===", cycle_start.isoformat())
+
+    # Initialize Claude client
+    api_key = os.environ.get("ANTHROPIC_API_KEY", config.get("anthropic_api_key"))
+    if not api_key:
+        log.error("No ANTHROPIC_API_KEY found in environment or config")
+        return state
+
+    client = anthropic.Anthropic(api_key=api_key)
+    system_prompt = load_prompts()
+
+    # 1. Scrape Chinese sources only (B2B is China-focused)
+    china_items = fetch_china_sources()
+    log.info("Fetched %d China source items", len(china_items))
+
+    if not china_items:
+        log.info("No China content to process for B2B")
+        state["b2b_last_run"] = cycle_start.isoformat()
+        state["b2b_last_items"] = 0
+        return state
+
+    # Dedup against history
+    raw_count = len(china_items)
+    china_items = deduplicate_articles(china_items, state)
+    log.info("After dedup: %d raw -> %d unique", raw_count, len(china_items))
+
+    # 2. Two-stage analysis
+    briefing_text = ""
+    drafts = []
+    enriched = []
+    relevant = []
+
+    try:
+        log.info("Stage 1: Translating and categorizing articles...")
+        enriched = stage1_translate_categorize(client, china_items)
+        log.info("Stage 1 complete: %d articles enriched", len(enriched))
+
+        relevant = [a for a in enriched if a.get("relevance", 1) >= 3]
+        log.info("Relevance filter: %d -> %d (score >= 3)", len(enriched), len(relevant))
+
+        if relevant:
+            log.info("Stage 2: Pattern analysis and briefing generation...")
+            result = stage2_pattern_analysis(client, system_prompt, relevant)
+            briefing_text = result.get("briefing", "")
+            drafts = result.get("drafts", [])
+            log.info(
+                "Stage 2 complete: briefing=%d chars, %d drafts",
+                len(briefing_text),
+                len(drafts),
+            )
+
+    except Exception as e:
+        log.error("Two-stage pipeline failed for B2B: %s, falling back to legacy", e)
+        drafts = analyze_and_generate_drafts(client, system_prompt, china_items)
+
+    if not briefing_text and not drafts:
+        log.info("No notable content for B2B newsletter")
+        state["b2b_last_run"] = cycle_start.isoformat()
+        state["b2b_last_items"] = len(china_items)
+        return state
+
+    # 3. Format as B2B newsletter
+    from substack import format_b2b_newsletter
+
+    date_str = cycle_start.strftime("%Y-%m-%d")
+    newsletter_md, newsletter_html = format_b2b_newsletter(briefing_text, drafts, date_str)
+    log.info("B2B newsletter formatted: %d chars md, %d chars html", len(newsletter_md), len(newsletter_html))
+
+    # Also save the raw briefing via poster (preserves existing behavior)
+    from poster import save_briefing_to_disk
+
+    save_briefing_to_disk(briefing_text, drafts)
+
+    # 4. Submit for governance review
+    from governance import submit_for_review
+
+    submit_for_review(newsletter_md, newsletter_html, date_str)
+
+    # 5. Create Gmail draft for breakfast review
+    create_b2b_gmail_draft(config, newsletter_html, date_str)
+
+    # 6. Update state
+    cycle_duration = (datetime.now(timezone.utc) - cycle_start).total_seconds()
+    state["b2b_last_run"] = cycle_start.isoformat()
+    state["b2b_last_items"] = len(china_items)
+    state["b2b_last_drafts"] = len(drafts)
+    state["b2b_last_date"] = date_str
+    state["b2b_total_runs"] = state.get("b2b_total_runs", 0) + 1
+    state["total_runs"] = state.get("total_runs", 0) + 1
+    state["total_drafts"] = state.get("total_drafts", 0) + len(drafts)
+
+    state["b2b_health"] = {
+        "last_cycle_duration_s": round(cycle_duration, 1),
+        "china_article_count": len(china_items),
+        "enriched_count": len(enriched),
+        "relevant_count": len(relevant),
+        "briefing_chars": len(briefing_text),
+        "drafts_generated": len(drafts),
+        "newsletter_date": date_str,
+        "gmail_draft_created": True,
+        "governance_submitted": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    log.info(
+        "B2B cycle complete: %d items -> %d relevant -> newsletter for %s (%0.1fs)",
+        len(china_items),
+        len(relevant),
+        date_str,
+        cycle_duration,
+    )
+
+    return state
+
+
 def dump_pending_for_claude() -> None:
     """Dump pending articles as structured prompt for claude -p. Outputs to stdout."""
     pending = load_json(PENDING_PATH, default={"articles": []})
@@ -933,6 +1101,7 @@ def main():
 
     Modes:
       (no args)        — Legacy: full cycle with API calls
+      b2b              — Beijing to Breakfast: scrape + analyze + format newsletter + governance
       --scrape-only    — Scrape + dedup + save to pending.json (free, runs every 15 min)
       --analyze        — Analyze pending articles (reads stdin from claude -p, or falls back to API)
       --dump-prompt    — Output structured prompt for piping to claude -p
@@ -962,7 +1131,10 @@ def main():
     })
 
     try:
-        if mode == "--scrape-only":
+        if mode == "b2b":
+            log.info("Beijing to Breakfast newsletter mode")
+            state = run_b2b_cycle(config, state)
+        elif mode == "--scrape-only":
             log.info("Ahgen scrape-only mode")
             state = run_scrape_only(config, state)
         elif mode == "--analyze":

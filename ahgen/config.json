@@ -1,0 +1,26 @@
+{
+  "anthropic_api_key": "REDACTED_SET_VIA_ENV",
+  "gmail_client_id": "",
+  "gmail_client_secret": "",
+  "gmail_refresh_token": "",
+  "gmail_to": "christopher@erp-access.com",
+  "gmail_from": "ahgen.topps@erp-access.com",
+  "devto_api_key": "rpqYxNMzUdiy2nFsJoR98i82",
+  "b2b_enabled": true,
+  "b2b_byline": "Christopher Bailey",
+  "b2b_footer": "Research powered by Lex Intel",
+  "model": "claude-sonnet-4-20250514",
+  "china_sources": [
+    "36kr",
+    "huxiu",
+    "leiphone",
+    "caixin",
+    "infoq_china",
+    "zhidx",
+    "csdn",
+    "sap_china",
+    "kingdee",
+    "yonyou",
+    "jiemian"
+  ]
+}

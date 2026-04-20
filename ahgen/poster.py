@@ -41,6 +41,12 @@ def save_briefing_to_disk(
         lines.append("---\n")
         lines.append("## Post Drafts\n")
         for i, draft in enumerate(drafts, 1):
+            if isinstance(draft, str):
+                lines.append(f"### {i}. Draft\n")
+                lines.append(draft)
+                lines.append("")
+                continue
+
             summary = draft.get("summary", f"Draft {i}")
             urgency = draft.get("urgency", "medium").upper()
             source = draft.get("source", "unknown")
@@ -50,9 +56,9 @@ def save_briefing_to_disk(
             globe = draft.get("global_post") or draft.get("global_draft") or {}
             china = draft.get("china_post") or draft.get("china_draft") or {}
 
-            if globe.get("text"):
+            if isinstance(globe, dict) and globe.get("text"):
                 lines.append(f"**LinkedIn (EN):**\n{globe['text']}\n")
-            if china.get("text"):
+            if isinstance(china, dict) and china.get("text"):
                 lines.append(f"**WeChat (ZH):**\n{china['text']}\n")
 
     filepath.write_text("\n".join(lines), encoding="utf-8")
